@@ -1,7 +1,7 @@
 
 
-
 rm(list=ls())  # 这行代码是清空当前工作环境中的所有对象，确保你开始一个干净的工作空间
+library(ggpmisc)
 library(parallel)
 library(lmtest)
 library(DescTools)
@@ -39,10 +39,18 @@ library(webshot)
 library(htmlwidgets)
 library(scales)
 library(scatterplot3d)
+library(extrafont)
+library(showtext)
+library(pdftools)
+library(magick)       # 处理PDF图片提取和合并
+library(cowplot)      # 处理图形组合
+library(grid)         # 图形布局处理
 ############################## 读取数据############################################
-## 数据路径
 
-sentiment_UTC_data='dataset2018_2019_numbermorethan20_unique'
+
+####################
+
+sentiment_UTC_data='dataset2018_2019_2020_2021_numbermorethan10_unique'
 
 str0='E:/Sentiment_Brazil/R_codes/'
 
@@ -78,11 +86,20 @@ result0 <- result0 %>%
   mutate(freq = n()) %>%  # 新增一列 freq，表示 userid 出现的频数
   ungroup()               # 去掉分组
 
+
+
 # 统计唯一用户数量
 unique_users <- n_distinct(result0$userid)
 cat("总用户数:", unique_users, "\n")
 
-query_sample2 = subset(result0, (freq>50) ) # 过滤tweet文本过少的数据阈值设为：50, 100, 150, 200, 250, 300,
+## 去除 countryside 数据
+#result0 <- subset(result0, !(CityName %in% c("countryside")))
+
+## 去除异常值，
+#query_sample2<-subset(result0, !(sentiment > 0.95 & UTC500>0.2) )
+#query_sample2<-subset(query_sample2, !(sentiment < 0.25 & UTC500<0.05))
+
+query_sample2 = subset(result0, (freq>30) ) # 过滤tweet文本过少的数据阈值设为：50, 100, 150, 200, 250, 300,
 query_sample2 <- na.omit(query_sample2)
 
 
@@ -90,7 +107,214 @@ unique_users <- n_distinct(query_sample2$userid)
 cat("总用户数:", unique_users, "\n")
 
 
+#######################################增加疫情前后列#########################################################
+query_sample2 <- na.omit(query_sample2)
 
+# 获取年份数据2018-2022
+year <- substr(query_sample2$yearmonth, start = 2, stop = 5)
+names(year)[1] <- "year"
+query_sample2 <- cbind (query_sample2,year)
+# 获取月份数据2018-2022
+month <- substr(query_sample2$yearmonth, start = 7, stop = 8)
+names(month)[1] <- "month"
+query_sample2 <- cbind (query_sample2,month)
+
+# 获取 covid-19 前后标签
+period <- ifelse(query_sample2$year < '2020', "Before Covid-19",
+                 ifelse(query_sample2$year == '2020' & (query_sample2$month == '01' | query_sample2$month == '02'), "Before Covid-19", "During Covid-19"))
+period <- data.frame(period)  # 将向量转换为数据框
+names(period) <- "period"  # 重命名列为 "covid"
+query_sample2 <- cbind(query_sample2, period)  # 合并covid列到数据框
+
+
+
+
+# 增加疫情前期中期标记变量 
+#query_sample2_meanUTC_before <- subset(query_sample2, covid == "before")
+#query_sample2_meanUTC_during <- subset(query_sample2, covid == "during")
+
+#query_sample2_meanUTC_before$period <- "Before Covid-19"
+#query_sample2_meanUTC_during$period <- "During Covid-19"
+
+#combined_data <- rbind(query_sample2_meanUTC_before, query_sample2_meanUTC_during)
+
+#################################绘制图形###########################################
+
+
+##################################################################################
+theme0<-theme(panel.grid.major = element_blank(),
+              panel.grid.minor = element_blank(),
+              panel.background = element_blank(),
+              axis.text.x = element_text(size = 15),
+              axis.text.y = element_text(size = 15),
+              axis.title = element_text(size = 15),
+              strip.text.x = element_text(size = 15),
+              strip.text.y = element_text(),
+              strip.background = element_rect( fill="white",colour = "black"))
+###############################
+
+
+################################# UTC-tree relationship before ##################################
+
+# 创建数据框架
+data <- data.frame(tree = query_sample2$UTC1000, sentiment = query_sample2$sentiment, period=query_sample2$period)
+## 获取样本对应的子集数据框
+data_meanUTC_before <- subset(data, period == "Before Covid-19")
+data_meanUTC_during <- subset(data, period == "During Covid-19")
+# 绘制散点图
+#mapping=aes(x= tree ,y=sentiment)
+
+###############################
+
+ggplot(data_meanUTC_before, mapping=aes(x= tree, y=sentiment))+
+  geom_smooth(
+    method = 'lm', #线性回归
+    formula = 'y ~ x',
+    se=T,#添加置信区间，默认就是T
+    lwd=1,#线条宽度
+    color = "black", #拟合曲线颜色
+    fill="#FFB5C5",alpha=0.5)+  #置信区间颜色
+  stat_poly_eq(
+    formula = formula(y ~ x),  # 
+    aes(label = paste(..eq.label.., sep = "~~~")),
+    parse = TRUE,
+    label.x = 0.85, label.y = 0.78, #设置位置
+    size=5, color = "black"  # 设置字体大小和颜色
+  )+
+  
+  annotate("text",  x=0.3,   y=23.9, size=5,color="black",hjust=0,label = "italic(P[before]) < 0.001", parse = TRUE, parse = TRUE)+
+  theme_classic()+theme0+
+  
+  labs(title = "",y=" ",x="")+
+  xlab("") +   # X轴标签
+  ylab("Negative sentiment values \n (95% CI)")+ # Y轴标签
+  scale_x_continuous(name = " ", limits = c(0, 0.6), breaks = seq(0, 0.6, by =0.15), 
+                     labels = scales::number_format(accuracy = 0.01)) +
+  theme(plot.margin = margin(t=0.0,b=-1.2,l=0.2,r=0.2, unit = "cm"),
+        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
+        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
+  )->treesentiment_meanUTC_before ## 可视范围限制
+
+print(treesentiment_meanUTC_before)
+########
+ggplot(data = data_meanUTC_before)+
+  geom_histogram(aes(x = tree, y = ..density..), binwidth = 0.0020, fill = "#FFB5C5", color = "#FFB5C5", alpha = 0.5) +
+  #geom_density(aes(x=UTC1000),fill="#002C5B66", color="white",show.legend = F, adjust = 1.8)+
+  scale_x_continuous(name = "UTC coverage", limits = c(0, 0.6), breaks = seq(0, 0.6, by =0.15), 
+                     labels = scales::number_format(accuracy = 0.01)) +
+  scale_y_continuous(name = "  ", limits = c(0.0, 11.0),
+                     breaks = seq(0.0, 11.0, by = 3.0), 
+                     labels = scales::number_format(accuracy = 0.1)) +
+  #labs(x=expression("UTC1000_2"),y="")+
+  theme_classic()+theme0+
+  theme(plot.margin = margin(t=-0.35,b=0,l=0.2,r=0.2, unit = "cm"),
+        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
+        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
+  )->phUTC_meanUTC_before # 可视范围限制在 0 到 0.5 的范围内
+
+print(phUTC_meanUTC_before)
+
+ptreesentiment_meanUTC_before<-ggarrange(treesentiment_meanUTC_before,phUTC_meanUTC_before,ncol = 1,align = "v",heights = c(2,1))
+#cairo_pdf("figure3.pdf",width = 11,height = 4,family = "Calibri")
+print(ptreesentiment_meanUTC_before)
+
+
+save_image_path= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'tree_sentiment_meanUTC_before', '.pdf', sep="")  # 字符串连接
+
+ggsave(save_image_path, plot = ptreesentiment_meanUTC_before, width = 150, height = 150, units = "mm",dpi=200)
+
+
+
+################################# UTC-tree relationship during ##################################
+
+
+ggplot(data_meanUTC_during, mapping=aes(x= tree, y=sentiment))+
+  geom_smooth(
+    method = 'lm', #线性回归
+    formula = 'y ~ x',
+    se=T,#添加置信区间，默认就是T
+    lwd=1,#线条宽度
+    color = "black", #拟合曲线颜色
+    fill="#48D1CC",alpha=0.5)+  #置信区间颜色
+  stat_poly_eq(
+    formula = formula(y ~ x),  # 
+    aes(label = paste(..eq.label.., sep = "~~~")),
+    parse = TRUE,
+    label.x = 0.8, label.y = 0.77, #设置位置
+    size=5, color = "black"  # 设置字体大小和颜色
+  )+
+  annotate("text",  x=0.3, y=35.6, size=5,color="black",hjust=0,label = "italic(P[during]) < 0.001", parse = TRUE, parse = TRUE)+
+  theme_classic()+theme0+
+  
+  labs(title = "",y=" ",x="")+
+  xlab("") +   # X轴标签
+  ylab("Negative sentiment values \n (95% CI)")+ # Y轴标签
+  scale_x_continuous(name = " ", limits = c(0, 0.6), breaks = seq(0, 0.6, by =0.15), 
+                     labels = scales::number_format(accuracy = 0.01)) +
+  theme(plot.margin = margin(t=0.0,b=-1.2,l=0.2,r=0.2, unit = "cm"),
+        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
+        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
+  )->treesentiment_meanUTC_during ## 可视范围限制
+
+print(treesentiment_meanUTC_during)
+
+
+########
+ggplot(data = data_meanUTC_during)+
+  geom_histogram(aes(x = tree, y = ..density..), binwidth = 0.0020, fill = "#48D1CC", color = "#48D1CC", alpha = 0.5) +
+  #geom_density(aes(x=UTC1000),fill="#002C5B66", color="white",show.legend = F, adjust = 1.8)+
+  scale_x_continuous(name = "UTC coverage", limits = c(0, 0.6), breaks = seq(0, 0.6, by =0.15), 
+                     labels = scales::number_format(accuracy = 0.01)) +
+  scale_y_continuous(name = "  ", limits = c(0.0, 11.0),
+                     breaks = seq(0.0, 11.0, by = 3.0), 
+                     labels = scales::number_format(accuracy = 0.1)) +
+  #labs(x=expression("UTC1000_2"),y="")+
+  theme_classic()+theme0+
+  theme(plot.margin = margin(t=-0.35,b=0,l=0.2,r=0.2, unit = "cm"),
+        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
+        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
+  )->phUTC_meanUTC_during # 可视范围限制在 0 到 0.5 的范围内
+
+print(phUTC_meanUTC_during)
+
+ptreesentiment_meanUTC_during<-ggarrange(treesentiment_meanUTC_during,phUTC_meanUTC_during,ncol = 1,align = "v",heights = c(2,1))
+#cairo_pdf("figure3.pdf",width = 11,height = 4,family = "Calibri")
+print(ptreesentiment_meanUTC_during)
+
+
+save_image_path= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'tree_sentiment_meanUTC_during', '.pdf', sep="")  # 字符串连接
+
+ggsave(save_image_path, plot = ptreesentiment_meanUTC_during, width = 150, height = 150, units = "mm",dpi=200)
+
+
+
+
+################################################合并图形###############################################################
+#a2 <-  cowplot::plot_grid(ptreesentiment_meanUTC_during,nrow = 2, ncol = 1, labels = c("(b)"),
+#label_size = 15, scale=1,label_x = 0.53, label_y = -0.01, rel_heights = c(1.0, 0.1), rel_widths = c(1, 1))
+
+#print(a2)      
+
+
+a1 <-  cowplot::plot_grid(ptreesentiment_meanUTC_before, nrow = 1, ncol = 1, labels = c("b"),
+                          label_size = 18, scale=1, label_x = 0.01, label_y = 1.01,  rel_heights = c(1.0), rel_widths = c(1.0))
+
+print(a1)
+
+a2 <-  cowplot::plot_grid(ptreesentiment_meanUTC_during,nrow = 1, ncol = 1, labels = c("c "),
+                          label_size = 18, scale=1,label_x = 0.01, label_y = 1.01, rel_heights = c(1.0), rel_widths = c( 1))
+
+print(a2)                          
+
+
+
+pa <- cowplot::plot_grid(a1, NULL, a2, nrow = 1, ncol = 3, align = "h", rel_heights = c(1.0, 1.0, 1.0), rel_widths = c(1, 0.1, 1.0)) # rel_heights 参数图形高度设置
+print(pa)
+
+
+save_image_path= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'tree_sentiment_meanUTC_before_meanUTC_during', '.pdf', sep="")  # 字符串连接
+
+ggsave(save_image_path, plot = pa, width = 300, height = 150, units = "mm",dpi=300)
 
 
 
@@ -101,67 +325,94 @@ cat("总用户数:", unique_users, "\n")
 
 
 
-input_file_name= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_effects', '.csv', sep="")  # 字符串连接
+input_file_name_meanUTC_before= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_effects_before', '.csv', sep="")  # 字符串连接
+effects_UTC1000_UTC_meanUTC_before = read.csv(input_file_name_meanUTC_before, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
+                                              strip.white = FALSE)
 
-effects_UTC1000_UTC = read.csv(input_file_name, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
-                               strip.white = FALSE)
+input_file_name_meanUTC_during= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_effects_during', '.csv', sep="")  # 字符串连接
+effects_UTC1000_UTC_meanUTC_during = read.csv(input_file_name_meanUTC_during, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
+                                              strip.white = FALSE)
+
 
 ###############################绘图################################
+###########绘图#################
 
-##################################################################################
-theme0<-theme(panel.grid.major = element_blank(),
-              panel.grid.minor = element_blank(),
-              panel.background = element_blank(),
-              axis.text.x = element_text(size = 15),
-              axis.text.y = element_text(size = 15),
-              axis.title = element_text(size = 15),
-              strip.text.x = element_text(size = 15),
-              strip.text.y = element_text(),
-              strip.background = element_rect( fill="white",colour = "black"))
-########NDVI+LBW
+theme0<-theme(  theme_minimal(base_family = "Arial"),
+                panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                panel.background = element_blank(),
+                legend.background = element_rect(fill = "transparent", color = NA),  # 背景透明，无边框
+                axis.text.x = element_text(size = 15),
+                axis.text.y = element_text(size = 15),
+                axis.title = element_text(size = 15),
+                strip.text.x = element_text(size = 15),
+                strip.text.y = element_text(),
+                strip.background = element_rect( fill="white",colour = "black"))
+##################################
+# 合并数据集，增加一个标记变量 "period" 表示疫情前后
+effects_UTC1000_UTC_meanUTC_before$period <- "Before Covid-19"
+effects_UTC1000_UTC_meanUTC_during$period <- "During Covid-19"
 
+combined_data1 <- rbind(effects_UTC1000_UTC_meanUTC_before,
+                        effects_UTC1000_UTC_meanUTC_during)
 
 ###################################### 绘制边际效应图和数据分布特征###########################################
-ggplot(data = effects_UTC1000_UTC)+
-  geom_ribbon(aes(x=UTC, y=mean_value, 
-                  ymin=Low_value, ymax=UP_value),
-              fill="#ED0021",alpha=0.3)+
-  geom_line(aes(x=UTC, y=mean_value),colour="black",size=0.7)+
-  annotate("text",x=0.4, y=-0.5, size=5,color="grey20",hjust=0,label=expression(" "*italic(P)*" < 0.001" ))+
+#ggplot(data = combined_data1)+
+#geom_ribbon(aes(x=UTC, y=mean_value, ymin=Low_value, ymax=UP_value),fill="#ED0021",alpha=0.3)+
+#geom_line(aes(x=UTC, y=mean_value),colour="black",size=0.7)+
+
+### 绘图
+ggplot(data = combined_data1, aes(x = UTC, y = mean_value, color = period, fill = period)) +
+  geom_ribbon(aes(ymin = Low_value, ymax = UP_value), alpha = 0.25, color = NA) +  # 去掉边界线
+  geom_line(size = 0.9) +  # 平均值线
+  annotate("text",  x=0.3,   y=-0.3, size=6, color="black",hjust=0,label = "italic(P[before]) < 0.001", parse = TRUE, parse = TRUE)+
+  annotate("text",  x=0.3, y = -0.7, size=6, color = "black", hjust = 0, label = "italic(P[during]) < 0.001", parse = TRUE) +
   geom_hline(yintercept = 0, linetype = "dashed", color = "red") +  # 添加一条红色虚线
-  scale_x_continuous(name = " ", limits = c(0, 0.8), breaks = seq(0, 0.8, by =0.2), 
-                     labels = scales::number_format(accuracy = 0.1)) +
+  scale_x_continuous(name = " ", limits = c(0, 0.6), breaks = seq(0, 0.6, by =0.15), 
+                     labels = scales::number_format(accuracy = 0.01)) +
   scale_y_continuous(name = "Effect on negative sentiment \n  values (95% CI)", 
-                     limits = c(-2.5, 1.0),
-                     breaks = seq(-2.5, 1.0, by = 0.75), 
+                     limits = c(-3.8, 0),
+                     breaks = seq(-3.8, 0, by = 1), 
                      labels = scales::number_format(accuracy = 0.1)) +
+  #scale_color_manual(values = c("Before Covid-19" = "#FFB5C5", "During Covid-19" = "#48D1CC")) + # 填充颜色  # 自定义颜色
+  #scale_fill_manual(values = c("Before Covid-19" = "#1F78B466", "During Covid-19" = "#33A02C66")) +
   labs(title = "",y=" ",x="")+
   theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.3,b=-1.2,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
+  theme(plot.margin = margin(t = -0.3, b = -1.2, l = 0.2, r = 0.2, unit = "cm"),
+        axis.text.y = element_text(color = "black", size = 15),
+        axis.text.x = element_text(color = "black", size = 15),
+        #legend.position = c(0.3, 0.3),  # 图例位置
+        legend.position = "top",  # 放在右侧外面
+        #legend.position = "none", #设置无legend
+        legend.title = element_blank(),  # 隐藏图例标题
+        legend.text = element_text(size = 15)
   )->pUTC1 ## 可视范围限制
 
 print(pUTC1)
 
 #######################
 
-ggplot(data = query_sample2) +
-  geom_histogram(aes(x = UTC1000, y = ..density..), binwidth = 0.002, fill = "#002C5B66", color = "#002C5B66", alpha = 0.5) +
-  #geom_density(aes(x=UTC1000),fill="#002C5B66", color="white",show.legend = F, adjust = 2.5)+
-  scale_x_continuous(name = "UTC coverage", limits = c(0, 0.8), breaks = seq(0, 0.8, by = 0.2), 
+# 绘制直方图，边框颜色与填充颜色不同
+ggplot(data = query_sample2, aes(x = UTC1000, fill = period)) +
+  geom_histogram(aes(y = ..density.., color = period), 
+                 position = "identity", binwidth = 0.001, size = 0.8, alpha = 0.4, 
+                 color = NA) +  # 设置边框颜色为透明
+  scale_x_continuous(name = "UTC coverage", 
+                     limits = c(0, 0.6), breaks = seq(0, 0.6, by = 0.15), 
+                     labels = scales::number_format(accuracy = 0.01)) +
+  scale_y_continuous(name = " ", limits = c(0.0, 15), 
+                     breaks = seq(0.0, 16, by = 4), 
                      labels = scales::number_format(accuracy = 0.1)) +
-  scale_y_continuous(name = "  ", limits = c(0, 11),
-                     breaks = seq(0, 11, by = 3), 
-                     labels = scales::number_format(accuracy = 0.1)) +
-  #labs(x=expression("UTC1000"),y="")+
-  theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.35,b=0,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-  )->pUTC2 # 可视范围限制在 0 到 0.5 的范围内
+  scale_fill_manual(values = c("Before Covid-19" = "#FFB5C5", "During Covid-19" = "#48D1CC")) + # 填充颜色
+  #scale_color_manual(values = c("Before Covid-19" = "#08459440",  # 添加透明度（80 示 50% 透明）
+  #"During Covid-19" = "#00640040")) + # 添加透明度
+  theme_classic() + theme0 +
+  theme(plot.margin = margin(t = -0.35, b = 0, l = 0.2, r = 0.2, unit = "cm"),
+        axis.text.y = element_text(color = "black", size = 15),
+        axis.text.x = element_text(color = "black", size = 15),
+        legend.position = "none")->pUTC2
 
-print(pUTC2)             
+print(pUTC2)
 
 
 pUTC<-ggarrange(pUTC1,pUTC2,ncol = 1,align = "v",heights = c(2,1))
@@ -169,201 +420,275 @@ pUTC<-ggarrange(pUTC1,pUTC2,ncol = 1,align = "v",heights = c(2,1))
 print(pUTC)
 
 
-save_image_path= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_effects', '.pdf', sep="")  # 字符串连接
+save_image_path= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_effects', '.pdf', sep="")  # 字符串连接
 
-ggsave(save_image_path, plot = pUTC, width = 150, height = 150, units = "mm",dpi=200)
+ggsave(save_image_path, plot = pUTC, width = 150, height = 130, units = "mm",dpi=200)
+
+
+
+
+
+
 
 #########################Marginal effect UTC1000 ################################
 
+##疫情前数据集
+input_file_name_meanUTC_before= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_UTC1000_before', '.csv', sep="")  # 字符串连接
 
-input_file_name= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_UTC1000', '.csv', sep="")  # 字符串连接
-
-
-marginaleffects_UTC1000_UTC1000 = read.csv(input_file_name, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
-                                           strip.white = FALSE)
-
-
-##################################################################################
-theme0<-theme(panel.grid.major = element_blank(),
-              panel.grid.minor = element_blank(),
-              panel.background = element_blank(),
-              axis.text.x = element_text(size = 15),
-              axis.text.y = element_text(size = 15),
-              axis.title = element_text(size = 15),
-              strip.text.x = element_text(size = 15),
-              strip.text.y = element_text(),
-              strip.background = element_rect( fill="white",colour = "black"))
-########NDVI+LBW
+marginaleffects_UTC_UTC1000_meanUTC_before = read.csv(input_file_name_meanUTC_before, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
+                                                      strip.white = FALSE)
 
 
-###################################### 绘制边际效应图和数据分布特征###########################################
-ggplot(data = marginaleffects_UTC1000_UTC1000)+
-  geom_ribbon(aes(x=UTC1000, y=mean_value, ymin=Low_value, ymax=UP_value),fill="#ED0021",alpha=0.3)+
-  geom_line(aes(x=UTC1000, y=mean_value),colour="black",size=0.70)+
-  annotate("text",x=0.15, y=-2.0, size=5,color="grey20",hjust=0,label=expression(" "*italic(P)*" < 0.001" ))+
-  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +  # 添加一条红色虚线
-  scale_x_continuous(name = " ", limits = c(0, 0.8), breaks = seq(0.0, 0.8, by =0.2), 
+##疫情后数据集
+input_file_name_meanUTC_during= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_UTC1000_during', '.csv', sep="")  # 字符串连接
+
+marginaleffects_UTC_UTC1000_meanUTC_during = read.csv(input_file_name_meanUTC_during, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
+                                                      strip.white = FALSE)
+
+
+
+###########绘图#################
+
+theme0<-theme(  theme_minimal(base_family = "Arial"),
+                panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                panel.background = element_blank(),
+                legend.background = element_rect(fill = "transparent", color = NA),  # 背景透明，无边框
+                axis.text.x = element_text(size = 15),
+                axis.text.y = element_text(size = 15),
+                axis.title = element_text(size = 15),
+                strip.text.x = element_text(size = 15),
+                strip.text.y = element_text(),
+                strip.background = element_rect( fill="white",colour = "black"))
+
+##################################
+# 合并数据集，增加一个标记变量 "period" 表示疫情前后
+marginaleffects_UTC_UTC1000_meanUTC_before$period <- "Before Covid-19"
+marginaleffects_UTC_UTC1000_meanUTC_during$period <- "During Covid-19"
+
+combined_data1 <- rbind(marginaleffects_UTC_UTC1000_meanUTC_before,
+                        marginaleffects_UTC_UTC1000_meanUTC_during)
+
+
+
+
+### 绘图
+ggplot(data = combined_data1, aes(x = UTC1000, y = mean_value, color = period, fill = period)) +
+  geom_ribbon(aes(ymin = Low_value, ymax = UP_value), alpha = 0.25, color = NA) +  # 去掉边界线
+  geom_line(size = 0.9) +  # 平均值线
+  annotate("text", x = 0.1, y = 1.5, size = 6, color = "black", hjust = 0, label = "italic(P[before]) < 0.001", parse = TRUE) +
+  annotate("text", x = 0.1, y = 3.5, size = 6, color = "black", hjust = 0, label = "italic(P[during]) < 0.001", parse = TRUE) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +  # 添加红色虚线
+  scale_x_continuous(name = " ", limits = c(0, 0.6), breaks = seq(0, 0.6, by = 0.15),
+                     labels = scales::number_format(accuracy = 0.01)) +
+  scale_y_continuous(name = "Marginal effect on negative \n sentiment values (95% CI)",
+                     limits = c(-14.0, 8), breaks = seq(-14.0, 8, by = 5.0),
                      labels = scales::number_format(accuracy = 0.1)) +
-  scale_y_continuous(name = "Marginal effect on negative \n sentiment values (95% CI)", limits = c(-11.0, 1.5),
-                     breaks = seq(-11.0, 1.5, by = 3.0), 
-                     labels = scales::number_format(accuracy = 0.1)) +
-  labs(title = "",y=" ",x="")+
-  theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.3,b=-1.2,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-  )->pUTC10001 ## 可视范围限制
+  #scale_color_manual(values = c("Before Covid-19" = "#FFB5C5", "During Covid-19" = "#48D1CC")) + # 填充颜色
+  #scale_fill_manual(values = c("Before Covid-19" = "#1F78B466", "During Covid-19" = "#33A02C66")) +
+  labs(title = "", y = "Marginal effect on negative \n sentiment values (95% CI)", x = "Skin Temperature") +
+  theme_classic() + theme0 +
+  theme(plot.margin = margin(t = -0.3, b = -1.2, l = 0.2, r = 0.2, unit = "cm"),
+        axis.text.y = element_text(color = "black", size = 15),
+        axis.text.x = element_text(color = "black", size = 15),
+        #legend.position = c(0.3, 0.9),  # 图例位置
+        legend.position = "none" #设置无legend
+        #legend.title = element_blank(),  # 隐藏图例标题
+        #legend.text = element_text(size = 15)
+  )->pUTC10001  # 图例字体大小
 
 print(pUTC10001)
 
+#############################################################
 
-##这种现象可能是由于在高人口密度的环境中，树木覆盖的效果会受到拥挤、交通或噪音等其他环境因素的抵消。
-##这可能导致在较高人口密度下，树木覆盖对情绪的积极作用没有低密度地区明显，甚至消极情绪可能不明显下降。
-
-
-
-#######################
-ggplot(data = query_sample2)+
-  geom_histogram(aes(x = UTC1000, y = ..density..), binwidth = 0.0020, fill = "#003c5B66", color = "black", alpha = 0.5) +
-  #geom_density(aes(x=UTC1000),fill="#002C5B66", color="white",show.legend = F, adjust = 1.8)+
-  scale_x_continuous(name = "UTC coverage", limits = c(0, 0.8), breaks = seq(0, 0.8, by = 0.2), 
+# 绘制直方图，边框颜色与填充颜色不同
+ggplot(data = query_sample2, aes(x = UTC1000, fill = period)) +
+  geom_histogram(aes(y = ..density.., color = period), 
+                 position = "identity", binwidth = 0.001, size = 0.8, alpha = 0.4, 
+                 color = NA) +  # 设置边框颜色为透明
+  scale_x_continuous(name = "UTC coverage", 
+                     limits = c(0, 0.6), breaks = seq(0, 0.6, by = 0.15),
+                     labels = scales::number_format(accuracy = 0.01)) +
+  scale_y_continuous(name = " ", limits = c(0.0, 15), 
+                     breaks = seq(0.0, 15, by = 4), 
                      labels = scales::number_format(accuracy = 0.1)) +
-  scale_y_continuous(name = "  ", limits = c(0.0, 11.0),
-                     breaks = seq(0.0, 11.0, by = 3.0), 
-                     labels = scales::number_format(accuracy = 0.1)) +
-  #labs(x=expression("UTC1000_2"),y="")+
-  theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.35,b=0,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-  )->pUTC10002 # 可视范围限制在 0 到 0.5 的范围内
+  scale_fill_manual(values = c("Before Covid-19" = "#FFB5C5", "During Covid-19" = "#48D1CC")) + # 填充颜色
+  #scale_color_manual(values = c("Before Covid-19" = "#08459440",  # 添加透明度（80 表示 50% 透明）
+  #"During Covid-19" = "#00640040")) + # 添加透明度
+  theme_classic() + theme0 +
+  theme(plot.margin = margin(t = -0.35, b = 0, l = 0.2, r = 0.2, unit = "cm"),
+        axis.text.y = element_text(color = "black", size = 15),
+        axis.text.x = element_text(color = "black", size = 15),
+        legend.position = "none")->pUTC10002
 
 print(pUTC10002)
 
 
-pUTC1000<-ggarrange(pUTC10001,pUTC10002,ncol = 1,align = "v",heights = c(2,1))
-#cairo_pdf("figure3.pdf",width = 11,height = 4,family = "Calibri")
+pUTC1000<-ggarrange(pUTC10001, pUTC10002,ncol = 1,align = "v",heights = c(2,1))
 print(pUTC1000)
 
 
-save_image_path= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_UTC1000', '.pdf', sep="")  # 字符串连接
+save_image_path= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_UTC1000', '.pdf', sep="")  # 字符串连接
 
 ggsave(save_image_path, plot = pUTC1000, width = 150, height = 150, units = "mm",dpi=200)
 
 
+
+
+
+
 ################################################合并图形###############################################################
-aa <-  cowplot::plot_grid(pUTC,nrow = 1, ncol = 1, labels = c("a"),
-                          label_size = 18, scale=1,label_x = 0.02, label_y = 1.0, rel_widths = c(1, 1))
+a1 <-  cowplot::plot_grid(pUTC,nrow = 1, ncol = 1, labels = c("a"),
+                          label_size = 15, scale=1, label_x = 0.1, label_y = 1.0,  rel_heights = c(1.0, 0.1), rel_widths = c(1, 1))
+
+print(a1)
+
+a2 <-  cowplot::plot_grid(pUTC1000,nrow = 1, ncol = 1, labels = c("b"),
+                          label_size = 15, scale=1,label_x = 0.1, label_y = 1.0, rel_heights = c(1.0, 0.1), rel_widths = c(1, 1))
+
+print(a2)                          
 
 
 
-bb <-  cowplot::plot_grid(pUTC1000,nrow = 1, ncol = 1, labels = c("b"),
-                          label_size = 18, scale=1,label_x = 0.02, label_y = 1.0, rel_widths = c(1, 1))
+pa <- cowplot::plot_grid(a1, NULL, a2, nrow = 1, ncol = 3, align = "h", rel_heights = c(1.0, 1.0, 1.0), rel_widths = c(1, 0.1, 1.0)) # rel_heights 参数图形高度设置
+print(pa)
 
-p1 <- cowplot::plot_grid(aa, NULL, bb, nrow = 1, ncol = 3, align = "h", rel_heights = c(1.0, 1.0, 1.0), rel_widths = c(1, 0.1, 1.0)) # rel_heights 参数图形高度设置
-print(p1)
 
-save_image_path= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_effect_UTC1000_Marginal_effect', '.pdf', sep="")  # 字符串连接
+save_image_path= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_effect_Marginaleffect', '.pdf', sep="")  # 字符串连接
 
-ggsave(save_image_path, plot = p1, width = 260, height = 120, units = "mm",dpi=200)
+ggsave(save_image_path, plot = pa, width = 300, height = 150, units = "mm",dpi=300)
 
 
 
-########################################Marginal effect NOUTC1000 #########################################
 
 
-input_file_name= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_NOUTC1000', '.csv', sep="")  # 字符串连接
 
 
-marginaleffects_UTC1000_NOUTC1000 = read.csv(input_file_name, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
-                                             strip.white = FALSE)
+#########################Marginal effect NOUTC1000 ################################
+
+##疫情前数据集
+input_file_name_meanUTC_before= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_NOUTC1000_meanUTC_before', '.csv', sep="")  # 字符串连接
+
+marginaleffects_UTC_NOUTC1000_meanUTC_before = read.csv(input_file_name_meanUTC_before, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
+                                                        strip.white = FALSE)
 
 
-##################################################################################
-theme0<-theme(panel.grid.major = element_blank(),
-              panel.grid.minor = element_blank(),
-              panel.background = element_blank(),
-              axis.text.x = element_text(size = 15),
-              axis.text.y = element_text(size = 15),
-              axis.title = element_text(size = 15),
-              strip.text.x = element_text(size = 15),
-              strip.text.y = element_text(),
-              strip.background = element_rect( fill="white",colour = "black"))
-########NDVI+LBW
+##疫情后数据集
+input_file_name_meanUTC_during= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_NOUTC1000_meanUTC_during', '.csv', sep="")  # 字符串连接
+
+marginaleffects_UTC_NOUTC1000_meanUTC_during = read.csv(input_file_name_meanUTC_during, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
+                                                        strip.white = FALSE)
 
 
-###################################### 绘制边际效应图和数据分布特征###########################################
-ggplot(data = marginaleffects_UTC1000_NOUTC1000)+
-  geom_ribbon(aes(x=NOUTC1000, y=mean_value, ymin=Low_value, ymax=UP_value),fill="#ED0021",alpha=0.3)+
-  geom_line(aes(x=NOUTC1000, y=mean_value),colour="black",size=0.7)+
-  annotate("text",x=0.55, y=-2.7, size=5,color="grey20",hjust=0,label=expression(" "*italic(P)*" < 0.001" ))+
-  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +  # 添加一条红色虚线
-  scale_x_continuous(name = " ", limits = c(0, 0.8), breaks = seq(0, 0.8, by =0.2), 
+
+###########绘图#################
+
+theme0<-theme(  theme_minimal(base_family = "Arial"),
+                panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                panel.background = element_blank(),
+                legend.background = element_rect(fill = "transparent", color = NA),  # 背景透明，无边框
+                axis.text.x = element_text(size = 15),
+                axis.text.y = element_text(size = 15),
+                axis.title = element_text(size = 15),
+                strip.text.x = element_text(size = 15),
+                strip.text.y = element_text(),
+                strip.background = element_rect( fill="white",colour = "black"))
+
+##################################
+# 合并数据集，增加一个标记变量 "period" 表示疫情前后
+marginaleffects_UTC_NOUTC1000_meanUTC_before$period <- "Before Covid-19"
+marginaleffects_UTC_NOUTC1000_meanUTC_during$period <- "During Covid-19"
+
+combined_data1 <- rbind(marginaleffects_UTC_NOUTC1000_meanUTC_before,
+                        marginaleffects_UTC_NOUTC1000_meanUTC_during)
+
+### 绘图
+ggplot(data = combined_data1, aes(x = NOUTC1000, y = mean_value, color = period, fill = period)) +
+  geom_ribbon(aes(ymin = Low_value, ymax = UP_value), alpha = 0.25, color = NA) +  # 去掉边界线
+  geom_line(size = 0.9) +  # 平均值线 
+  annotate("text", x = 0.1, y = -1.0, size = 6, color = "black", hjust = 0, label = "italic(P[before]) < 0.001", parse = TRUE) +
+  annotate("text", x = 0.1, y = -3.5, size = 6, color = "black", hjust = 0, label = "italic(P[during]) < 0.001", parse = TRUE) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +  # 添加红色虚线
+  scale_x_continuous(name = " ", limits = c(0, 0.6), breaks = seq(0, 0.6, by = 0.15),
+                     labels = scales::number_format(accuracy = 0.01)) +
+  scale_y_continuous(name = "Marginal effect on negative \n sentiment values (95% CI)",
+                     limits = c(-25.0, 0), breaks = seq(-25.0, 0, by = 5.0),
                      labels = scales::number_format(accuracy = 0.1)) +
-  scale_y_continuous(name = "Marginal effect on negative \n sentiment values (95% CI)", limits = c(-13, 0),
-                     breaks = seq(-13, 0, by = 3), 
-                     labels = scales::number_format(accuracy = 0.1)) +
-  labs(title = "",y=" ",x="")+
-  theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.3,b=-1.2,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-  )->pNOUTC10001 ## 可视范围限制
+  #scale_color_manual(values = c("Before Covid-19" = "#FFB5C5", "During Covid-19" = "#48D1CC")) + # 填充颜色  # 自定义颜色
+  #scale_fill_manual(values = c("Before Covid-19" = "#1F78B466", "During Covid-19" = "#33A02C66")) +
+  labs(title = "", y = "Marginal effect on negative \n sentiment values (95% CI)", x = "Skin Temperature") +
+  theme_classic() + theme0 +
+  theme(plot.margin = margin(t = -0.3, b = -1.2, l = 0.2, r = 0.2, unit = "cm"),
+        axis.text.y = element_text(color = "black", size = 15),
+        axis.text.x = element_text(color = "black", size = 15),
+        #legend.position = c(0.3, 0.9),  # 图例位置
+        legend.position = "none", #设置无legend
+        legend.title = element_blank(),  # 隐藏图例标题
+        legend.text = element_text(size = 15)
+  )->pNOUTC10001  # 图例字体大小
+
 
 print(pNOUTC10001)
 
+#############################################################
 
-##这种现象可能是由于在高人口密度的环境中，树木覆盖的效果会受到拥挤、交通或噪音等其他环境因素的抵消。
-##这可能导致在较高人口密度下，树木覆盖对情绪的积极作用没有低密度地区明显，甚至消极情绪可能不明显下降。
-
-
-
-#######################
-ggplot(data = query_sample2)+
-  geom_histogram(aes(x = NOUTC1000, y = ..density..), binwidth = 0.0015, fill = "#002C5B66", color = "#002C5B66", alpha = 0.5) +
-  #geom_density(aes(x=NOUTC1000),fill="#002C5B66", color="white",show.legend = F, adjust = 2.5)+
-  scale_x_continuous(name = "No-tree green space coverage", limits = c(0, 0.8), breaks = seq(0, 0.8, by = 0.2), 
-                     labels = scales::number_format(accuracy = 0.2)) +
-  scale_y_continuous(name = "  ", limits = c(0, 11),
-                     breaks = seq(0, 11, by = 3), 
+# 绘制直方图，边框颜色与填充颜色不同
+ggplot(data = query_sample2, aes(x = NOUTC1000, fill = period)) +
+  geom_histogram(aes(y = ..density.., color = period), 
+                 position = "identity", binwidth = 0.001, size = 0.8, alpha = 0.4, 
+                 color = NA) +  # 设置边框颜色为透明
+  scale_x_continuous(name = "NTGS coverage", 
+                     limits = c(0, 0.6), breaks = seq(0, 0.6, by = 0.15), 
+                     labels = scales::number_format(accuracy = 0.01)) +
+  scale_y_continuous(name = " ", limits = c(0.0, 15), 
+                     breaks = seq(0.0, 15, by = 4), 
                      labels = scales::number_format(accuracy = 0.1)) +
-  #labs(x=expression("NOUTC1000"),y="")+
-  theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.35,b=0,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-  )->pNOUTC10002 # 可视范围限制在 0 到 0.5 的范围内
+  scale_fill_manual(values = c("Before Covid-19" = "#FFB5C5", "During Covid-19" = "#48D1CC")) + # 填充颜色 # 填充颜色
+  #scale_color_manual(values = c("Before Covid-19" = "#08459440",  # 添加透明度（80 表示 50% 透明）
+  #"During Covid-19" = "#00640040")) + # 添加透明度
+  theme_classic() + theme0 +
+  theme(plot.margin = margin(t = -0.35, b = 0, l = 0.2, r = 0.2, unit = "cm"),
+        axis.text.y = element_text(color = "black", size = 15),
+        axis.text.x = element_text(color = "black", size = 15),
+        legend.position = "none")->pNOUTC10002
 
 print(pNOUTC10002)
 
 
-pNOUTC1000<-ggarrange(pNOUTC10001,pNOUTC10002,ncol = 1,align = "v",heights = c(2,1))
-#cairo_pdf("figure3.pdf",width = 11,height = 4,family = "Calibri")
+pNOUTC1000<-ggarrange(pNOUTC10001, pNOUTC10002,ncol = 1,align = "v",heights = c(2,1))
 print(pNOUTC1000)
 
 
-save_image_path= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_NOUTC1000', '.pdf', sep="")  # 字符串连接
+save_image_path= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_NOUTC1000', '.pdf', sep="")  # 字符串连接
 
 ggsave(save_image_path, plot = pNOUTC1000, width = 150, height = 150, units = "mm",dpi=200)
 
 
+
+
+
+
+
 ################################################合并图形###############################################################
-dd <-  cowplot::plot_grid(pUTC1000,nrow = 1, ncol = 1, labels = c("b"),
+
+
+aa <-  cowplot::plot_grid(pUTC,nrow = 1, ncol = 1, labels = c("a"),
+                          label_size = 18, scale=1,label_x = 0.02, label_y = 1.0, rel_widths = c(1, 1))
+bb <-  cowplot::plot_grid(pUTC1000,nrow = 1, ncol = 1, labels = c("b"),
+                          label_size = 18, scale=1,label_x = 0.02, label_y = 1.0, rel_widths = c(1, 1))
+cc <-  cowplot::plot_grid(pNOUTC1000,nrow = 1, ncol = 1, labels = c("c"),
                           label_size = 18, scale=1,label_x = 0.02, label_y = 1.0, rel_widths = c(1, 1))
 
-
-
-cc <-  cowplot::plot_grid(pNOUTC1000,nrow = 1, ncol = 1, labels = c("a"),
-                          label_size = 18, scale=1,label_x = 0.02, label_y = 1.0, rel_widths = c(1, 1))
-
-p2 <- cowplot::plot_grid(cc, NULL, dd, nrow = 1, ncol = 3, align = "h", rel_heights = c(1.0, 1.0, 1.0), rel_widths = c(1, 0.1, 1.0)) # rel_heights 参数图形高度设置
+p1 <- cowplot::plot_grid(bb, NULL, cc, nrow = 1, ncol = 3, align = "h", rel_heights = c(1.0, 1.0, 1.0), rel_widths = c(1, 0.1, 1.0)) # rel_heights 参数图形高度设置
+print(p1)
+p2 <- cowplot::plot_grid(NULL, aa, NULL, nrow = 1, ncol = 3, align = "h", rel_heights = c(1.0, 1.0, 1.0), rel_widths = c(0.4, 1.0, 0.4)) # rel_heights 参数图形高度设置
 print(p2)
+p3 <- cowplot::plot_grid(p2, p1, nrow = 2, ncol = 1, align = "h", rel_heights = c(1.0, 0.9), rel_widths = c(1.0)) # rel_heights 参数图形高度设置
+print(p3)
 
-save_image_path= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC1000_NOUTC1000_Marginal_effect', '.pdf', sep="")  # 字符串连接
-
-ggsave(save_image_path, plot = p2, width = 260, height = 120, units = "mm",dpi=200)
-
-
+save_image_path= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC1000_effect_Marginal_effect', '.pdf', sep="")  # 字符串连接
+ggsave(save_image_path, plot = p3, width = 250, height = 250, units = "mm",dpi=200)
 
 
 ##################################################################################################
@@ -372,80 +697,106 @@ ggsave(save_image_path, plot = p2, width = 260, height = 120, units = "mm",dpi=2
 ################################### climatic factors ##############################################
 
 
-#########################################Precipitation#############################################
+
+#########################Marginal effect Precipitation ################################
+
+##疫情前数据集
+input_file_name_meanUTC_before= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_Precipitation_meanUTC_before', '.csv', sep="")  # 字符串连接
+
+marginaleffects_UTC_Precipitation_meanUTC_before = read.csv(input_file_name_meanUTC_before, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
+                                                            strip.white = FALSE)
+
+
+##疫情后数据集
+input_file_name_meanUTC_during= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_Precipitation_meanUTC_during', '.csv', sep="")  # 字符串连接
+
+marginaleffects_UTC_Precipitation_meanUTC_during = read.csv(input_file_name_meanUTC_during, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
+                                                            strip.white = FALSE)
 
 
 
-input_file_name= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_Precipitation', '.csv', sep="")  # 字符串连接
+###########绘图#################
 
-marginaleffects_UTC1000_Precipitation = read.csv(input_file_name, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
-                                                 strip.white = FALSE)
+theme0<-theme(  theme_minimal(base_family = "Arial"),
+                panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                panel.background = element_blank(),
+                legend.background = element_rect(fill = "transparent", color = NA),  # 背景透明，无边框
+                axis.text.x = element_text(size = 15),
+                axis.text.y = element_text(size = 15),
+                axis.title = element_text(size = 15),
+                strip.text.x = element_text(size = 15),
+                strip.text.y = element_text(),
+                strip.background = element_rect( fill="white",colour = "black"))
 
+##################################
+# 合并数据集，增加一个标记变量 "period" 表示疫情前后
+marginaleffects_UTC_Precipitation_meanUTC_before$period <- "Before Covid-19"
+marginaleffects_UTC_Precipitation_meanUTC_during$period <- "During Covid-19"
 
-##################################################################################
-theme0<-theme(panel.grid.major = element_blank(),
-              panel.grid.minor = element_blank(),
-              panel.background = element_blank(),
-              axis.text.x = element_text(size = 15),
-              axis.text.y = element_text(size = 15),
-              axis.title = element_text(size = 15),
-              strip.text.x = element_text(size = 15),
-              strip.text.y = element_text(),
-              strip.background = element_rect( fill="white",colour = "black"))
-########NDVI+LBW
+combined_data1 <- rbind(marginaleffects_UTC_Precipitation_meanUTC_before,
+                        marginaleffects_UTC_Precipitation_meanUTC_during)
 
-
-###################################### 绘制边际效应图和数据分布特征###########################################
-ggplot(data = marginaleffects_UTC1000_Precipitation)+
-  geom_ribbon(aes(x=Precipitation, y=mean_value, ymin=Low_value, ymax=UP_value),fill="#ED0021",alpha=0.3)+
-  geom_line(aes(x=Precipitation, y=mean_value),colour="black",size=0.7)+
-  annotate("text",x=11, y= -1.4, size=5,color="grey20",hjust=0,label=expression(" "*italic(P)*" < 0.001" ))+
-  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +  # 添加一条红色虚线
-  scale_x_continuous(name = " ", limits = c(0, 45), breaks = seq(0, 45, by =11.0), 
+### 绘图
+ggplot(data = combined_data1, aes(x = Precipitation, y = mean_value, color = period, fill = period)) +
+  geom_ribbon(aes(ymin = Low_value, ymax = UP_value), alpha = 0.25, color = NA) +  # 去掉边界线
+  geom_line(size = 0.9) +  # 平均值线
+  annotate("text", x = 5, y = -3.5, size = 6, color = "black", hjust = 0, label = "italic(P[before]) < 0.001", parse = TRUE) +
+  annotate("text", x = 5, y = -4.5, size = 6, color = "black", hjust = 0, label = "italic(P[during])< 0.001", parse = TRUE) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +  # 添加红色虚线
+  scale_x_continuous(name = " ", limits = c(0, 45), breaks = seq(0, 45, by =11.0),
                      labels = scales::number_format(accuracy = 0.1)) +
-  scale_y_continuous(name = "Marginal effect on negative \n sentiment values (95% CI)", limits = c(-5.5, 0.3),
-                     breaks = seq(-5.5, 0.3, by = 1.35), 
+  scale_y_continuous(name = "Marginal effect on negative \n sentiment values (95% CI)",
+                     limits = c(-10.0, 0), breaks = seq(-10.0, 0, by = 3),
                      labels = scales::number_format(accuracy = 0.1)) +
-  labs(title = "",y=" ",x="")+
-  theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.3,b=-1.2,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-  )->pPrecipitation1 ## 可视范围限制
+  #scale_color_manual(values = c("Before Covid-19" = "#FFB5C5", "During Covid-19" = "#48D1CC")) + # 填充颜色  # 自定义颜色
+  #scale_fill_manual(values = c("Before Covid-19" = "#1F78B466", "During Covid-19" = "#33A02C66")) +
+  labs(title = "", y = "Marginal effect on negative \n sentiment values (95% CI)", x = "Skin Temperature") +
+  theme_classic() + theme0 +
+  theme(plot.margin = margin(t = -0.3, b = -1.2, l = 0.2, r = 0.2, unit = "cm"),
+        axis.text.y = element_text(color = "black", size = 15),
+        axis.text.x = element_text(color = "black", size = 15),
+        #legend.position = "top", #设置无legend
+        legend.position = c(0.3, 0.85),  # 图例位置
+        #legend.position = "none", #设置无legend
+        legend.title = element_blank(),  # 隐藏图例标题
+        legend.text = element_text(size = 15)
+  )->pPrecipitation1  # 图例字体大小
 
 print(pPrecipitation1)
 
 
-##这种现象可能是由于在高人口密度的环境中，树木覆盖的效果会受到拥挤、交通或噪音等其他环境因素的抵消。
-##这可能导致在较高人口密度下，树木覆盖对情绪的积极作用没有低密度地区明显，甚至消极情绪可能不明显下降。
 
+#############################################################
 
-
-#######################
-ggplot(data = query_sample2)+
-  geom_histogram(aes(x = Precipitation, y = ..density..), binwidth = 0.08, 
-                 fill = "#002C5B66", color = "#002C5B66", alpha = 0.5) +
-  #geom_density(aes(x=Precipitation),fill="#002C5B66", color="white",show.legend = F, adjust = 2.5)+
-  scale_x_continuous(name = expression(Precipitation(mm/day)), limits = c(0, 45), breaks = seq(0, 45, by = 11.0), 
+# 绘制直方图，边框颜色与填充颜色不同
+ggplot(data = query_sample2, aes(x = Precipitation, fill = period)) +
+  geom_histogram(aes(y = ..density.., color = period), 
+                 position = "identity", binwidth = 0.05, size = 0.8, alpha = 0.4, 
+                 color = NA) +  # 设置边框颜色为透明
+  scale_x_continuous(name = expression(Precipitation(mm/day)), 
+                     limits = c(0, 45), breaks = seq(0, 45, by =11.0),
                      labels = scales::number_format(accuracy = 0.1)) +
-  scale_y_continuous(name = "  ", limits = c(0, 0.33),
-                     breaks = seq(0, 0.33, by = 0.1), 
-                     labels = scales::number_format(accuracy = 0.1)) +
-  #labs(x=expression("Precipitation"),y="")+
-  theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.35,b=0,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-  )->pPrecipitation2 # 可视范围限制在 0 到 0.5 的范围内
+  scale_y_continuous(name = " ", limits = c(0.0, 0.35), 
+                     breaks = seq(0.0, 0.35, by = 0.1), 
+                     labels = scales::number_format(accuracy = 0.01)) +
+  scale_fill_manual(values = c("Before Covid-19" = "#FFB5C5", "During Covid-19" = "#48D1CC")) + # 填充颜色 # 填充颜色
+  #scale_color_manual(values = c("Before Covid-19" = "#08459440",  # 添加透明度（80 表示 50% 透明）
+  #"During Covid-19" = "#00640040")) + # 添加透明度
+  theme_classic() + theme0 +
+  theme(plot.margin = margin(t = -0.35, b = 0, l = 0.2, r = 0.2, unit = "cm"),
+        axis.text.y = element_text(color = "black", size = 15),
+        axis.text.x = element_text(color = "black", size = 15),
+        legend.position = "none")->pPrecipitation2
 
 print(pPrecipitation2)
 
 
-pPrecipitation<-ggarrange(pPrecipitation1,pPrecipitation2,ncol = 1,align = "v",heights = c(2,1))
+pPrecipitation<-ggarrange(pPrecipitation1, pPrecipitation2,ncol = 1,align = "v",heights = c(2,1))
 print(pPrecipitation)
 
 
-save_image_path= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_Precipitation', '.pdf', sep="")  # 字符串连接
+save_image_path= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_Precipitation', '.pdf', sep="")  # 字符串连接
 
 ggsave(save_image_path, plot = pPrecipitation, width = 150, height = 150, units = "mm",dpi=200)
 
@@ -454,335 +805,206 @@ ggsave(save_image_path, plot = pPrecipitation, width = 150, height = 150, units 
 
 
 
+#########################Marginal effect humidity ################################
+
+##疫情前数据集
+input_file_name_meanUTC_before= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_humidity_meanUTC_before', '.csv', sep="")  # 字符串连接
+
+marginaleffects_UTC_humidity_meanUTC_before = read.csv(input_file_name_meanUTC_before, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
+                                                       strip.white = FALSE)
+
+
+##疫情后数据集
+input_file_name_meanUTC_during= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_humidity_meanUTC_during', '.csv', sep="")  # 字符串连接
+
+marginaleffects_UTC_humidity_meanUTC_during = read.csv(input_file_name_meanUTC_during, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
+                                                       strip.white = FALSE)
 
 
 
+###########绘图#################
 
+theme0<-theme(  theme_minimal(base_family = "Arial"),
+                panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                panel.background = element_blank(),
+                legend.background = element_rect(fill = "transparent", color = NA),  # 背景透明，无边框
+                axis.text.x = element_text(size = 15),
+                axis.text.y = element_text(size = 15),
+                axis.title = element_text(size = 15),
+                strip.text.x = element_text(size = 15),
+                strip.text.y = element_text(),
+                strip.background = element_rect( fill="white",colour = "black"))
 
-#########################################humidity########################################
+##################################
+# 合并数据集，增加一个标记变量 "period" 表示疫情前后
+marginaleffects_UTC_humidity_meanUTC_before$period <- "Before Covid-19"
+marginaleffects_UTC_humidity_meanUTC_during$period <- "During Covid-19"
 
+combined_data1 <- rbind(marginaleffects_UTC_humidity_meanUTC_before,
+                        marginaleffects_UTC_humidity_meanUTC_during)
 
-
-input_file_name= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_humidity', '.csv', sep="")  # 字符串连接
-
-
-
-marginaleffects_UTC1000_humidity= read.csv(input_file_name, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
-                                           strip.white = FALSE)
-
-
-##################################################################################
-theme0<-theme(panel.grid.major = element_blank(),
-              panel.grid.minor = element_blank(),
-              panel.background = element_blank(),
-              axis.text.x = element_text(size = 15),
-              axis.text.y = element_text(size = 15),
-              axis.title = element_text(size = 15),
-              strip.text.x = element_text(size = 15),
-              strip.text.y = element_text(),
-              strip.background = element_rect( fill="white",colour = "black"))
-########NDVI+LBW
-
-
-###################################### 绘制边际效应图和数据分布特征###########################################
-ggplot(data = marginaleffects_UTC1000_humidity)+
-  geom_ribbon(aes(x=humidity, y=mean_value, ymin=Low_value, ymax=UP_value),fill="#ED0021",alpha=0.3)+
-  geom_line(aes(x=humidity, y=mean_value),colour="black",size=0.7)+
-  annotate("text",x=36, y=-1.5, size=5,color="grey20",hjust=0,label=expression(" "*italic(P)*" < 0.001" ))+
-  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +  # 添加一条红色虚线
-  scale_x_continuous(name = " ", limits = c(15, 100), breaks = seq(15, 100, by =21), 
+### 绘图
+ggplot(data = combined_data1, aes(x = humidity, y = mean_value, color = period, fill = period)) +
+  geom_ribbon(aes(ymin = Low_value, ymax = UP_value), alpha = 0.25, color = NA) +  # 去掉边界线
+  geom_line(size = 0.9) +  # 平均值线
+  annotate("text", x = 30, y = -1.0, size = 6, color = "black", hjust = 0, label = "italic(P[before]) > 0.1", parse = TRUE) +
+  annotate("text", x = 30, y = -2.5, size = 6, color = "black", hjust = 0, label = "italic(P[during]) < 0.001", parse = TRUE) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +  # 添加红色虚线
+  scale_x_continuous(name = " ", limits = c(15, 100), breaks = seq(15, 100, by =21),   
                      labels = scales::number_format(accuracy = 0.1)) +
-  scale_y_continuous(name = "Marginal effect on negative \n sentiment values (95% CI)", limits = c(-7, 0.0),
-                     breaks = seq(-7, 0.0, by = 1.5), 
+  scale_y_continuous(name = "Marginal effect on negative \n sentiment values (95% CI)",
+                     limits = c(-13.0, 0), breaks = seq(-13.0, 0, by = 3.5),
                      labels = scales::number_format(accuracy = 0.1)) +
-  labs(title = "",y=" ",x="")+
-  theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.3,b=-1.2,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-  )->phumidity1 ## 可视范围限制
+  #scale_color_manual(values = c("Before Covid-19" = "#FFB5C5", "During Covid-19" = "#48D1CC")) + # 填充颜色  # 自定义颜色
+  #scale_fill_manual(values = c("Before Covid-19" = "#1F78B466", "During Covid-19" = "#33A02C66")) +
+  labs(title = "", y = "Marginal effect on negative \n sentiment values (95% CI)", x = "Skin Temperature") +
+  theme_classic() + theme0 +
+  theme(plot.margin = margin(t = -0.3, b = -1.2, l = 0.2, r = 0.2, unit = "cm"),
+        axis.text.y = element_text(color = "black", size = 15),
+        axis.text.x = element_text(color = "black", size = 15),
+        #legend.position = c(0.3, 0.9),  # 图例位置
+        legend.position = "none", #设置无legend
+        legend.title = element_blank(),  # 隐藏图例标题
+        legend.text = element_text(size = 15)
+  )->phumidity1  # 图例字体大小
+
 
 print(phumidity1)
 
+#############################################################
 
-##这种现象可能是由于在高人口密度的环境中，树木覆盖的效果会受到拥挤、交通或噪音等其他环境因素的抵消。
-##这可能导致在较高人口密度下，树木覆盖对情绪的积极作用没有低密度地区明显，甚至消极情绪可能不明显下降。
-
-
-
-#######################
-ggplot(data = query_sample2)+
-  geom_histogram(aes(x = humidity, y = ..density..), binwidth = 0.16, fill = "#002C5B66", color = "#002C5B66", alpha = 0.5) +
-  #geom_density(aes(x=humidity),fill="#002C5B66", color="white",show.legend = F, adjust = 1.5)+
+# 绘制直方图，边框颜色与填充颜色不同
+ggplot(data = query_sample2, aes(x = humidity, fill = period)) +
+  geom_histogram(aes(y = ..density.., color = period), 
+                 position = "identity", binwidth = 0.003, size = 0.8, alpha = 0.4, 
+                 color = NA) +  # 设置边框颜色为透明
   scale_x_continuous(name = "Humidity(%)", limits = c(15, 100), breaks = seq(15, 100, by = 21), 
                      labels = scales::number_format(accuracy = 0.1)) +
-  scale_y_continuous(name = "  ", limits = c(0, 0.05),
-                     breaks = seq(0, 0.05, by = 0.015), 
+  scale_y_continuous(name = " ", limits = c(0.0, 0.2), 
+                     breaks = seq(0.0, 0.2, by = 0.08), 
                      labels = scales::number_format(accuracy = 0.01)) +
-  #labs(x=expression("humidity"),y="")+
-  theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.35,b=0,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-  )->phumidity2 # 可视范围限制在 0 到 0.5 的范围内
+  scale_fill_manual(values = c("Before Covid-19" = "#FFB5C5", "During Covid-19" = "#48D1CC")) + # 填充颜色 # 填充颜色
+  #scale_color_manual(values = c("Before Covid-19" = "#08459440",  # 添加透明度（80 表示 50% 透明）
+  #"During Covid-19" = "#00640040")) + # 添加透明度
+  theme_classic() + theme0 +
+  theme(plot.margin = margin(t = -0.35, b = 0, l = 0.2, r = 0.2, unit = "cm"),
+        axis.text.y = element_text(color = "black", size = 15),
+        axis.text.x = element_text(color = "black", size = 15),
+        legend.position = "none")->phumidity2
 
 print(phumidity2)
 
 
-phumidity<-ggarrange(phumidity1,phumidity2,ncol = 1,align = "v",heights = c(2,1))
-#cairo_pdf("figure3.pdf",width = 11,height = 4,family = "Calibri")
+phumidity<-ggarrange(phumidity1, phumidity2,ncol = 1,align = "v",heights = c(2,1))
 print(phumidity)
 
 
-save_image_path= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_humidity', '.pdf', sep="")  # 字符串连接
+save_image_path= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_humidity', '.pdf', sep="")  # 字符串连接
 
 ggsave(save_image_path, plot = phumidity, width = 150, height = 150, units = "mm",dpi=200)
 
 
 
-#########################################Wind########################################
+
+#########################Marginal effect Surface_pressure ################################
+
+##疫情前数据集
+input_file_name_meanUTC_before= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_Surface_pressure_meanUTC_before', '.csv', sep="")  # 字符串连接
+
+marginaleffects_UTC_Surface_pressure_meanUTC_before = read.csv(input_file_name_meanUTC_before, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
+                                                               strip.white = FALSE)
+
+
+##疫情后数据集
+input_file_name_meanUTC_during= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_Surface_pressure_meanUTC_during', '.csv', sep="")  # 字符串连接
+
+marginaleffects_UTC_Surface_pressure_meanUTC_during = read.csv(input_file_name_meanUTC_during, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
+                                                               strip.white = FALSE)
 
 
 
-input_file_name= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_Wind', '.csv', sep="")  # 字符串连接
+###########绘图#################
 
+theme0<-theme(  theme_minimal(base_family = "Arial"),
+                panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                panel.background = element_blank(),
+                legend.background = element_rect(fill = "transparent", color = NA),  # 背景透明，无边框
+                axis.text.x = element_text(size = 15),
+                axis.text.y = element_text(size = 15),
+                axis.title = element_text(size = 15),
+                strip.text.x = element_text(size = 15),
+                strip.text.y = element_text(),
+                strip.background = element_rect( fill="white",colour = "black"))
 
-marginaleffects_UTC1000_Wind = read.csv(input_file_name, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
-                                        strip.white = FALSE)
+##################################
+# 合并数据集，增加一个标记变量 "period" 表示疫情前后
+marginaleffects_UTC_Surface_pressure_meanUTC_before$period <- "Before Covid-19"
+marginaleffects_UTC_Surface_pressure_meanUTC_during$period <- "During Covid-19"
 
+combined_data1 <- rbind(marginaleffects_UTC_Surface_pressure_meanUTC_before,
+                        marginaleffects_UTC_Surface_pressure_meanUTC_during)
 
-##################################################################################
-theme0<-theme(panel.grid.major = element_blank(),
-              panel.grid.minor = element_blank(),
-              panel.background = element_blank(),
-              axis.text.x = element_text(size = 15),
-              axis.text.y = element_text(size = 15),
-              axis.title = element_text(size = 15),
-              strip.text.x = element_text(size = 15),
-              strip.text.y = element_text(),
-              strip.background = element_rect( fill="white",colour = "black"))
-########NDVI+LBW
-
-
-###################################### 绘制边际效应图和数据分布特征###########################################
-ggplot(data = marginaleffects_UTC1000_Wind)+
-  geom_ribbon(aes(x=Wind, y=mean_value, ymin=Low_value, ymax=UP_value),fill="#ED0021",alpha=0.3)+
-  geom_line(aes(x=Wind, y=mean_value),colour="black",size=0.7)+
-  annotate("text",x=1.5, y=-1.5, size=5,color="grey20",hjust=0,label=expression(" "*italic(P)*" < 0.001" ))+
-  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +  # 添加一条红色虚线
-  scale_x_continuous(name = " ", limits = c(0, 8), breaks = seq(0, 8, by =2), 
+### 绘图
+ggplot(data = combined_data1, aes(x = Surface_pressure, y = mean_value, color = period, fill = period)) +
+  geom_ribbon(aes(ymin = Low_value, ymax = UP_value), alpha = 0.25, color = NA) +  # 去掉边界线
+  geom_line(size = 0.9) +  # 平均值线
+  annotate("text", x = 91.5, y = -1.0, size = 6, color = "black", hjust = 0, label = "italic(P[before]) < 0.001", parse = TRUE) +
+  annotate("text", x = 91.5, y = -2.5, size = 6, color = "black", hjust = 0, label = "italic(P[during]) < 0.001", parse = TRUE) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +  # 添加红色虚线
+  scale_x_continuous(name = " ", limits =  c(90, 102), breaks = seq(90, 102, by =3), 
                      labels = scales::number_format(accuracy = 0.1)) +
-  scale_y_continuous(name = "Marginal effect on negative \n sentiment values (95% CI)", limits = c(-6.0, 0.0),
-                     breaks = seq(-6.0, 0.0, by = 1.5), 
+  scale_y_continuous(name = "Marginal effect on negative \n sentiment values (95% CI)",
+                     limits = c(-12.0, 0), breaks = seq(-12.0, 0, by = 3.0),
                      labels = scales::number_format(accuracy = 0.1)) +
-  labs(title = "",y=" ",x="")+
-  theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.3,b=-1.2,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-  )->pWind1 ## 可视范围限制
+  #scale_color_manual(values = c("Before Covid-19" = "#FFB5C5", "During Covid-19" = "#48D1CC")) + # 填充颜色  # 自定义颜色
+  #scale_fill_manual(values = c("Before Covid-19" = "#1F78B466", "During Covid-19" = "#33A02C66")) +
+  labs(title = "", y = "Marginal effect on negative \n sentiment values (95% CI)", x = "Skin Temperature") +
+  theme_classic() + theme0 +
+  theme(plot.margin = margin(t = -0.3, b = -1.2, l = 0.2, r = 0.2, unit = "cm"),
+        axis.text.y = element_text(color = "black", size = 15),
+        axis.text.x = element_text(color = "black", size = 15),
+        #legend.position = c(0.3, 0.9),  # 图例位置
+        legend.position = "none", #设置无legend
+        legend.title = element_blank(),  # 隐藏图例标题
+        legend.text = element_text(size = 15)
+  )->pSurface_pressure1  # 图例字体大小
 
-print(pWind1)
-
-
-##这种现象可能是由于在高人口密度的环境中，树木覆盖的效果会受到拥挤、交通或噪音等其他环境因素的抵消。
-##这可能导致在较高人口密度下，树木覆盖对情绪的积极作用没有低密度地区明显，甚至消极情绪可能不明显下降。
-
-
-
-#######################
-ggplot(data = query_sample2)+
-  geom_histogram(aes(x = Wind, y = ..density..), binwidth = 0.015, fill = "#002C5B66", color = "#002C5B66", alpha = 0.5, szie=4.7) +
-  #geom_density(aes(x=Wind),fill="#002C5B66", color="white",show.legend = F, adjust = 2.5)+
-  scale_x_continuous(name = "Wind speed (m/s)", limits = c(0, 8), breaks = seq(0, 8, by = 2.0), 
-                     labels = scales::number_format(accuracy = 0.1)) +
-  scale_y_continuous(name = "  ", limits = c(0, 0.67),
-                     breaks = seq(0, 0.67, by = 0.2), 
-                     labels = scales::number_format(accuracy = 0.1)) +
-  #labs(x=expression("Wind"),y="")+
-  theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.35,b=0,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-  )->pWind2 # 可视范围限制在 0 到 0.5 的范围内
-
-print(pWind2)
-
-
-pWind<-ggarrange(pWind1,pWind2,ncol = 1,align = "v",heights = c(2,1))
-#cairo_pdf("figure3.pdf",width = 11,height = 4,family = "Calibri")
-print(pWind)
-
-
-save_image_path= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_Wind', '.pdf', sep="")  # 字符串连接
-
-ggsave(save_image_path, plot = pWind, width = 150, height = 150, units = "mm",dpi=200)
-
-
-
-
-
-
-
-
-
-
-
-
-#########################################cloudcover########################################
-
-
-input_file_name= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_cloudcover', '.csv', sep="")  # 字符串连接
-
-
-marginaleffects_UTC1000_cloudcover = read.csv(input_file_name, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
-                                              strip.white = FALSE)
-
-##################################################################################
-theme0<-theme(panel.grid.major = element_blank(),
-              panel.grid.minor = element_blank(),
-              panel.background = element_blank(),
-              axis.text.x = element_text(size = 15),
-              axis.text.y = element_text(size = 15),
-              axis.title = element_text(size = 15),
-              strip.text.x = element_text(size = 15),
-              strip.text.y = element_text(),
-              strip.background = element_rect( fill="white",colour = "black"))
-########NDVI+LBW
-
-
-###################################### 绘制边际效应图和数据分布特征###########################################
-ggplot(data = marginaleffects_UTC1000_cloudcover)+
-  geom_ribbon(aes(x=cloudcover, y=mean_value, ymin=Low_value, ymax=UP_value),fill="#ED0021",alpha=0.3)+
-  geom_line(aes(x=cloudcover, y=mean_value),colour="black",size=0.7)+
-  annotate("text",x=20, y=-1.5, size=5,color="grey20",hjust=0,label=expression(" "*italic(P)*" = 0.8152" ))+
-  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +  # 添加一条红色虚线
-  scale_x_continuous(name = " ", limits = c(0, 80), breaks = seq(0, 80, by =20.0), 
-                     labels = scales::number_format(accuracy =0.1)) +
-  scale_y_continuous(name = "Marginal effect on negative \n sentiment values (95% CI)", limits = c(-6.0, 0.0),
-                     breaks = seq(-6.0, 0.0, by = 1.5), 
-                     labels = scales::number_format(accuracy = 0.1)) +
-  labs(title = "",y=" ",x="")+
-  theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.3,b=-1.2,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-  )->pcloudcover1 ## 可视范围限制
-
-print(pcloudcover1)
-
-
-##这种现象可能是由于在高人口密度的环境中，树木覆盖的效果会受到拥挤、交通或噪音等其他环境因素的抵消。
-##这可能导致在较高人口密度下，树木覆盖对情绪的积极作用没有低密度地区明显，甚至消极情绪可能不明显下降。
-
-
-
-#######################
-ggplot(data = query_sample2)+
-  geom_histogram(aes(x = cloudcover, y = ..density..), binwidth = 0.015, fill = "#002C5B66", color = "#002C5B66", alpha = 0.5, size = 0.7) +
-  #geom_density(aes(x=cloudcover),fill="#002C5B66", color="white",show.legend = F, adjust = 0.15)+
-  scale_x_continuous(name = "Cloud Coverage (%)", limits = c(0, 80), breaks = seq(0, 80, by = 20.0), 
-                     labels = scales::number_format(accuracy = 0.1)) +
-  scale_y_continuous(name = "  ", limits = c(0, 2),
-                     breaks = seq(0, 2, by = 0.6), 
-                     labels = scales::number_format(accuracy = 0.6)) +
-  #labs(x=expression("cloudcover"),y="")+
-  theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.35,b=0,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-  )->pcloudcover2 # 可视范围限制在 0 到 0.5 的范围内
-
-print(pcloudcover2)
-
-
-pcloudcover<-ggarrange(pcloudcover1,pcloudcover2,ncol = 1,align = "v",heights = c(2,1))
-#cairo_pdf("figure3.pdf",width = 11,height = 4,family = "Calibri")
-print(pcloudcover)
-
-
-save_image_path= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_cloudcover', '.pdf', sep="")  # 字符串连接
-
-ggsave(save_image_path, plot = pcloudcover, width = 150, height = 150, units = "mm",dpi=200)
-
-
-
-
-#########################################Surface_pressure########################################
-
-
-
-
-input_file_name= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_Surface_pressure', '.csv', sep="")  # 字符串连接
-
-marginaleffects_UTC1000_Surface_pressure = read.csv(input_file_name, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
-                                                    strip.white = FALSE)
-
-
-##################################################################################
-theme0<-theme(panel.grid.major = element_blank(),
-              panel.grid.minor = element_blank(),
-              panel.background = element_blank(),
-              axis.text.x = element_text(size = 15),
-              axis.text.y = element_text(size = 15),
-              axis.title = element_text(size = 15),
-              strip.text.x = element_text(size = 15),
-              strip.text.y = element_text(),
-              strip.background = element_rect( fill="white",colour = "black"))
-########NDVI+LBW
-
-
-###################################### 绘制边际效应图和数据分布特征###########################################
-ggplot(data = marginaleffects_UTC1000_Surface_pressure)+
-  geom_ribbon(aes(x=Surface_pressure, y=mean_value, ymin=Low_value, ymax=UP_value),fill="#ED0021",alpha=0.3)+
-  geom_line(aes(x=Surface_pressure, y=mean_value),colour="black",size=0.7)+
-  annotate("text",x=92, y=-2.0, size=5,color="grey20",hjust=0,label=expression(" "*italic(P)*" < 0.001" ))+
-  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +  # 添加一条红色虚线
-  scale_x_continuous(name = " ", limits = c(88, 104), breaks = seq(88, 104, by =4), 
-                     labels = scales::number_format(accuracy = 0.1)) +
-  scale_y_continuous(name = "Marginal effect on negative \n sentiment values (95% CI)", limits = c(-8.8, 0.3),
-                     breaks = seq(-8.8, 0.3, by = 2.2), 
-                     labels = scales::number_format(accuracy = 0.1)) +
-  labs(title = "",y=" ",x="")+
-  theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.3,b=-1.2,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-  )->pSurface_pressure1 ## 可视范围限制
 
 print(pSurface_pressure1)
 
 
-##这种现象可能是由于在高人口密度的环境中，树木覆盖的效果会受到拥挤、交通或噪音等其他环境因素的抵消。
-##这可能导致在较高人口密度下，树木覆盖对情绪的积极作用没有低密度地区明显，甚至消极情绪可能不明显下降。
+#############################################################
 
-
-
-#######################
-ggplot(data = query_sample2)+
-  geom_histogram(aes(x = Surface_pressure, y = ..density..), binwidth = 0.02, fill = "#002C5B66", color = "#002C5B66", alpha = 0.5) +
-  #geom_density(aes(x=Surface_pressure),fill="#002C5B66", color="white",show.legend = F, adjust = 2.5)+
-  scale_x_continuous(name =  expression(Surface~Pressure~(Pa~"×"~1000)), limits = c(88, 104), breaks = seq(88, 104, by = 4.0), 
+# 绘制直方图，边框颜色与填充颜色不同
+ggplot(data = query_sample2, aes(x = Surface_pressure, fill = period)) +
+  geom_histogram(aes(y = ..density.., color = period), 
+                 position = "identity", binwidth = 0.001, size = 0.8, alpha = 0.4, 
+                 color = NA) +  # 设置边框颜色为透明
+  scale_x_continuous(expression(Surface~Pressure~(Pa~"×"~1000)),
+                     limits = c(90, 102), breaks = seq(90, 102, by =3), 
                      labels = scales::number_format(accuracy = 0.1)) +
-  scale_y_continuous(name = "  ", limits = c(0, 0.35),
-                     breaks = seq(0, 0.35, by = 0.1), 
+  scale_y_continuous(name = " ", limits = c(0.0, 1), 
+                     breaks = seq(0.0, 1, by = 0.3), 
                      labels = scales::number_format(accuracy = 0.1)) +
-  #labs(x=expression("Surface_pressure"),y="")+
-  theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.35,b=0,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-  )->pSurface_pressure2 # 可视范围限制在 0 到 0.5 的范围内
+  scale_fill_manual(values = c("Before Covid-19" = "#FFB5C5", "During Covid-19" = "#48D1CC")) + # 填充颜色 # 填充颜色
+  #scale_color_manual(values = c("Before Covid-19" = "#08459440",  # 添加透明度（80 表示 50% 透明）
+  #"During Covid-19" = "#00640040")) + # 添加透明度
+  theme_classic() + theme0 +
+  theme(plot.margin = margin(t = -0.35, b = 0, l = 0.2, r = 0.2, unit = "cm"),
+        axis.text.y = element_text(color = "black", size = 15),
+        axis.text.x = element_text(color = "black", size = 15),
+        legend.position = "none")->pSurface_pressure2
 
 print(pSurface_pressure2)
 
 
-pSurface_pressure<-ggarrange(pSurface_pressure1,pSurface_pressure2,ncol = 1,align = "v",heights = c(2,1))
-#cairo_pdf("figure3.pdf",width = 11,height = 4,family = "Calibri")
+pSurface_pressure<-ggarrange(pSurface_pressure1, pSurface_pressure2,ncol = 1,align = "v",heights = c(2,1))
 print(pSurface_pressure)
 
 
-save_image_path= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_Surface_pressure', '.pdf', sep="")  # 字符串连接
+save_image_path= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_Surface_pressure', '.pdf', sep="")  # 字符串连接
 
 ggsave(save_image_path, plot = pSurface_pressure, width = 150, height = 150, units = "mm",dpi=200)
 
@@ -790,109 +1012,134 @@ ggsave(save_image_path, plot = pSurface_pressure, width = 150, height = 150, uni
 
 
 
-#########################################Skintemperature########################################
+
+#########################Marginal effect Skintemperature ################################
+
+##疫情前数据集
+input_file_name_meanUTC_before= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_Skintemperature_meanUTC_before', '.csv', sep="")  # 字符串连接
+
+marginaleffects_UTC_Skintemperature_meanUTC_before = read.csv(input_file_name_meanUTC_before, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
+                                                              strip.white = FALSE)
 
 
-input_file_name= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_Skintemperature', '.csv', sep="")  # 字符串连接
+##疫情后数据集
+input_file_name_meanUTC_during= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_Skintemperature_meanUTC_during', '.csv', sep="")  # 字符串连接
+
+marginaleffects_UTC_Skintemperature_meanUTC_during = read.csv(input_file_name_meanUTC_during, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
+                                                              strip.white = FALSE)
 
 
-marginaleffects_UTC1000_Skintemperature = read.csv(input_file_name, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
-                                                   strip.white = FALSE)
 
+###########绘图#################
 
-##################################################################################
-theme0<-theme(panel.grid.major = element_blank(),
-              panel.grid.minor = element_blank(),
-              panel.background = element_blank(),
-              axis.text.x = element_text(size = 15),
-              axis.text.y = element_text(size = 15),
-              axis.title = element_text(size = 15),
-              strip.text.x = element_text(size = 15),
-              strip.text.y = element_text(),
-              strip.background = element_rect( fill="white",colour = "black"))
-########NDVI+LBW
+theme0<-theme(  theme_minimal(base_family = "Arial"),
+                panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                panel.background = element_blank(),
+                legend.background = element_rect(fill = "transparent", color = NA),  # 背景透明，无边框
+                axis.text.x = element_text(size = 15),
+                axis.text.y = element_text(size = 15),
+                axis.title = element_text(size = 15),
+                strip.text.x = element_text(size = 15),
+                strip.text.y = element_text(),
+                strip.background = element_rect( fill="white",colour = "black"))
 
+##################################
+# 合并数据集，增加一个标记变量 "period" 表示疫情前后
+marginaleffects_UTC_Skintemperature_meanUTC_before$period <- "Before Covid-19"
+marginaleffects_UTC_Skintemperature_meanUTC_during$period <- "During Covid-19"
 
-###################################### 绘制边际效应图和数据分布特征###########################################
-ggplot(data = marginaleffects_UTC1000_Skintemperature)+
-  geom_ribbon(aes(x=Skintemperature, y=mean_value, ymin=Low_value, ymax=UP_value),fill="#ED0021",alpha=0.3)+
-  geom_line(aes(x=Skintemperature, y=mean_value),colour="black",size=0.7)+
-  annotate("text",x=15, y=-1.8, size=5,color="grey20",hjust=0,label=expression(" "*italic(P)*" < 0.001" ))+
-  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +  # 添加一条红色虚线
-  scale_x_continuous(name = " ", limits = c(5, 45), breaks = seq(5, 45, by =10), 
+combined_data1 <- rbind(marginaleffects_UTC_Skintemperature_meanUTC_before,
+                        marginaleffects_UTC_Skintemperature_meanUTC_during)
+
+### 绘图
+ggplot(data = combined_data1, aes(x = Skintemperature, y = mean_value, color = period, fill = period)) +
+  geom_ribbon(aes(ymin = Low_value, ymax = UP_value), alpha = 0.25, color = NA) +  # 去掉边界线
+  geom_line(size = 0.9) +  # 平均值线
+  annotate("text", x = 10, y = -1.0, size = 6, color = "black", hjust = 0, label = "italic(P[before]) < 0.001", parse = TRUE) +
+  annotate("text", x = 10, y = -2.5, size = 6, color = "black", hjust = 0, label = "italic(P[during]) < 0.001", parse = TRUE) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +  # 添加红色虚线
+  scale_x_continuous(name = " ", limits = c(5, 45), breaks = seq(5, 45, by =10),  
                      labels = scales::number_format(accuracy = 0.1)) +
-  scale_y_continuous(name = "Marginal effect on negative \n sentiment values (95% CI)", limits = c(-7.6, 0),
-                     breaks = seq(-7.6, 0, by = 1.7), 
+  scale_y_continuous(name = "Marginal effect on negative \n sentiment values (95% CI)",
+                     limits = c(-14.0, 0), breaks = seq(-14.0, 0, by = 4.0),
                      labels = scales::number_format(accuracy = 0.1)) +
-  labs(title = "",y=" ",x="")+
-  theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.3,b=-1.2,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-  )->pSkintemperature1 ## 可视范围限制
+  #scale_color_manual(values = c("Before Covid-19" = "#FFB5C5", "During Covid-19" = "#48D1CC")) + # 填充颜色  # 自定义颜色
+  #scale_fill_manual(values = c("Before Covid-19" = "#1F78B466", "During Covid-19" = "#33A02C66")) +
+  labs(title = "", y = "Marginal effect on negative \n sentiment values (95% CI)", x = "Skin Temperature") +
+  theme_classic() + theme0 +
+  theme(plot.margin = margin(t = -0.3, b = -1.2, l = 0.2, r = 0.2, unit = "cm"),
+        axis.text.y = element_text(color = "black", size = 15),
+        axis.text.x = element_text(color = "black", size = 15),
+        #legend.position = c(0.3, 0.9),  # 图例位置
+        legend.position = "none", #设置无legend
+        legend.title = element_blank(),  # 隐藏图例标题
+        legend.text = element_text(size = 15)
+  )->pSkintemperature1  # 图例字体大小
+
 
 print(pSkintemperature1)
 
 
-##这种现象可能是由于在高人口密度的环境中，树木覆盖的效果会受到拥挤、交通或噪音等其他环境因素的抵消。
-##这可能导致在较高人口密度下，树木覆盖对情绪的积极作用没有低密度地区明显，甚至消极情绪可能不明显下降。
 
+#############################################################
 
-
-#######################
-ggplot(data = query_sample2)+
-  geom_histogram(aes(x = Skintemperature, y = ..density..), binwidth = 0.05, fill = "#002C5B66", color = "#002C5B66", alpha = 0.5) +
-  #geom_density(aes(x=Skintemperature),fill="#002C5B66", color="white",show.legend = F, adjust = 1.5)+
-  scale_x_continuous(name =expression(Temperature~(degree*C)), limits = c(5, 45), breaks = seq(5, 45, by = 10), 
+# 绘制直方图，边框颜色与填充颜色不同
+ggplot(data = query_sample2, aes(x = Skintemperature, fill = period)) +
+  geom_histogram(aes(y = ..density.., color = period), 
+                 position = "identity", binwidth = 0.001, size = 0.8, alpha = 0.4, 
+                 color = NA) +  # 设置边框颜色为透明
+  scale_x_continuous(name =expression(Temperature~(degree*C)), 
+                     limits = c(5, 45), breaks = seq(5, 45, by =10), 
                      labels = scales::number_format(accuracy = 0.1)) +
-  scale_y_continuous(name = "  ", limits = c(0, 0.10),
-                     breaks = seq(0, 0.10, by = 0.03), 
-                     labels = scales::number_format(accuracy = 0.03)) +
-  #labs(x=expression("Skintemperature"),y="")+
-  theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.35,b=0,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-  )->pSkintemperature2 # 可视范围限制在 0 到 0.5 的范围内
+  scale_y_continuous(name = " ", limits = c(0.0, 0.32), 
+                     breaks = seq(0.0, 0.32, by = 0.1), 
+                     labels = scales::number_format(accuracy = 0.1)) +
+  scale_fill_manual(values = c("Before Covid-19" = "#FFB5C5", "During Covid-19" = "#48D1CC")) + # 填充颜色 # 填充颜色
+  #scale_color_manual(values = c("Before Covid-19" = "#08459440",  # 添加透明度（80 表示 50% 透明）
+  #"During Covid-19" = "#00640040")) + # 添加透明度
+  theme_classic() + theme0 +
+  theme(plot.margin = margin(t = -0.35, b = 0, l = 0.2, r = 0.2, unit = "cm"),
+        axis.text.y = element_text(color = "black", size = 15),
+        axis.text.x = element_text(color = "black", size = 15),
+        legend.position = "none")->pSkintemperature2
 
 print(pSkintemperature2)
 
 
-pSkintemperature<-ggarrange(pSkintemperature1,pSkintemperature2,ncol = 1,align = "v",heights = c(2,1))
-#cairo_pdf("figure3.pdf",width = 11,height = 4,family = "Calibri")
+pSkintemperature<-ggarrange(pSkintemperature1, pSkintemperature2,ncol = 1,align = "v",heights = c(2,1))
 print(pSkintemperature)
 
 
-save_image_path= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_Skintemperature', '.pdf', sep="")  # 字符串连接
+save_image_path= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_Skintemperature', '.pdf', sep="")  # 字符串连接
 
 ggsave(save_image_path, plot = pSkintemperature, width = 150, height = 150, units = "mm",dpi=200)
 
 
 
 
+
 ################################################合并图形###############################################################
-ee <-  cowplot::plot_grid(pPrecipitation,nrow = 1, ncol = 1, labels = c("a"),
+cc <-  cowplot::plot_grid(pPrecipitation,nrow = 1, ncol = 1, labels = c("a"),
                           label_size = 18, scale=1,label_x = 0.02, label_y = 1.0, rel_widths = c(1, 1))
 
-ff <-  cowplot::plot_grid(phumidity,nrow = 1, ncol = 1, labels = c("b"),
-                          label_size = 18, scale=1,label_x = 0.02, label_y = 1.0, rel_widths = c(1, 1))
-
-gg <-  cowplot::plot_grid(pSurface_pressure,nrow = 1, ncol = 1, labels = c("c"),
-                          label_size = 18, scale=1,label_x = 0.02, label_y = 1.0, rel_widths = c(1, 1))
-
-hh <-  cowplot::plot_grid(pSkintemperature,nrow = 1, ncol = 1, labels = c("d"),
+dd <-  cowplot::plot_grid(phumidity,nrow = 1, ncol = 1, labels = c("b"),
                           label_size = 18, scale=1,label_x = 0.02, label_y = 1.0, rel_widths = c(1, 1))
 
 
+ee <-  cowplot::plot_grid(pSurface_pressure,nrow = 1, ncol = 1, labels = c("c"),
+                          label_size = 18, scale=1,label_x = 0.02, label_y = 1.0, rel_widths = c(1, 1))
+
+ff <-  cowplot::plot_grid(pSkintemperature,nrow = 1, ncol = 1, labels = c("d"),
+                          label_size = 18, scale=1,label_x = 0.02, label_y = 1.0, rel_widths = c(1, 1))
 
 
 
 
-
-p3 <- cowplot::plot_grid(ee, NULL, ff, nrow = 1, ncol = 3, align = "h", rel_heights = c(1.0, 1.0, 1.0), rel_widths = c(1, 0.1, 1.0)) # rel_heights 参数图形高度设置
+p3 <- cowplot::plot_grid(cc,NULL, dd, nrow = 1, ncol = 3, align = "h", rel_heights = c(1.0, 1.0, 1.0), rel_widths = c(1.0, 0.02, 1.0)) # rel_heights 参数图形高度设置
 print(p3)
 
-p4 <- cowplot::plot_grid(gg, NULL, hh, nrow = 1, ncol = 3, align = "h", rel_heights = c(1.0, 1.0, 1.0), rel_widths = c(1, 0.1, 1.0)) # rel_heights 参数图形高度设置
+p4 <- cowplot::plot_grid(ee,  NULL, ff, nrow = 1, ncol = 3, align = "h", rel_heights = c(1.0, 1.0, 1.0), rel_widths = c(1.0, 0.02, 1.0)) # rel_heights 参数图形高度设置
 print(p4)
 
 
@@ -900,9 +1147,12 @@ p5 <- cowplot::plot_grid(p3, p4, nrow = 2, ncol = 1, align = "h", rel_heights = 
 print(p5)
 
 
-save_image_path= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC1000_climate_Marginal_effect', '.pdf', sep="")  # 字符串连接
+save_image_path= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC1000_climate_Marginal_effect', '.pdf', sep="")  # 字符串连接
 
-ggsave(save_image_path, plot = p5, width = 320, height = 240, units = "mm",dpi=200)
+ggsave(save_image_path, plot = p5, width = 250, height = 250, units = "mm",dpi=200)
+
+
+
 
 
 
@@ -913,413 +1163,433 @@ ggsave(save_image_path, plot = p5, width = 320, height = 240, units = "mm",dpi=2
 
 
 
+#########################Marginal effect population1000 ################################
+
+##疫情前数据集
+input_file_name_meanUTC_before= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_population1000_meanUTC_before', '.csv', sep="")  # 字符串连接
+
+marginaleffects_UTC_population1000_meanUTC_before = read.csv(input_file_name_meanUTC_before, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
+                                                             strip.white = FALSE)
+
+
+##疫情后数据集
+input_file_name_meanUTC_during= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_population1000_meanUTC_during', '.csv', sep="")  # 字符串连接
+
+marginaleffects_UTC_population1000_meanUTC_during = read.csv(input_file_name_meanUTC_during, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
+                                                             strip.white = FALSE)
 
 
 
-#########################################population1000########################################
+###########绘图#################
 
+theme0<-theme(  theme_minimal(base_family = "Arial"),
+                panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                panel.background = element_blank(),
+                legend.background = element_rect(fill = "transparent", color = NA),  # 背景透明，无边框
+                axis.text.x = element_text(size = 15),
+                axis.text.y = element_text(size = 15),
+                axis.title = element_text(size = 15),
+                strip.text.x = element_text(size = 15),
+                strip.text.y = element_text(),
+                strip.background = element_rect( fill="white",colour = "black"))
 
-input_file_name= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_population1000', '.csv', sep="")  # 字符串连接
+##################################
+# 合并数据集，增加一个标记变量 "period" 表示疫情前后
+marginaleffects_UTC_population1000_meanUTC_before$period <- "Before Covid-19"
+marginaleffects_UTC_population1000_meanUTC_during$period <- "During Covid-19"
 
+combined_data1 <- rbind(marginaleffects_UTC_population1000_meanUTC_before,
+                        marginaleffects_UTC_population1000_meanUTC_during)
 
-marginaleffects_UTC1000_population1000 = read.csv(input_file_name, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
-                                                  strip.white = FALSE)
-
-
-
-##################################################################################
-theme0<-theme(panel.grid.major = element_blank(),
-              panel.grid.minor = element_blank(),
-              panel.background = element_blank(),
-              axis.text.x = element_text(size = 15),
-              axis.text.y = element_text(size = 15),
-              axis.title = element_text(size = 15),
-              strip.text.x = element_text(size = 15),
-              strip.text.y = element_text(),
-              strip.background = element_rect( fill="white",colour = "black"))
-########NDVI+LBW
-
-
-###################################### 绘制边际效应图和数据分布特征###########################################
-ggplot(data = marginaleffects_UTC1000_population1000)+
-  geom_ribbon(aes(x=population1000, y=mean_value, ymin=Low_value, ymax=UP_value),fill="#ED0021",alpha=0.3)+
-  geom_line(aes(x=population1000, y=mean_value),colour="black",size=0.7)+
-  annotate("text",x= 2.5, y= -1.2, size=5,color="grey20",hjust=0,label=expression(" "*italic(P)*" < 0.01" ))+
-  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +  # 添加一条红色虚线
-  scale_x_continuous(name = " ", limits = c(0, 10), breaks = seq(0, 10, by =2.5), 
+### 绘图
+ggplot(data = combined_data1, aes(x = population1000, y = mean_value, color = period, fill = period)) +
+  geom_ribbon(aes(ymin = Low_value, ymax = UP_value), alpha = 0.25, color = NA) +  # 去掉边界线
+  geom_line(size = 0.9) +  # 平均值线
+  annotate("text", x = 0.3, y = -3.0, size = 6, color = "black", hjust = 0, label = "italic(P[before]) < 0.001", parse = TRUE) +
+  annotate("text", x = 0.3, y = -5.5, size = 6, color = "black", hjust = 0, label = "italic(P[during]) < 0.001", parse = TRUE) + 
+  
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +  # 添加红色虚线
+  scale_x_continuous(name = " ", limits = c(0, 6), breaks = seq(0, 6, by =1.5), 
                      labels = scales::number_format(accuracy = 0.1)) +
-  scale_y_continuous(name = "Marginal effect on negative \n sentiment values (95% CI)", limits = c(-7, 6),
-                     breaks = seq(-7, 6, by =3), 
+  scale_y_continuous(name = "Marginal effect on negative \n sentiment values (95% CI)",
+                     limits = c(-13.0, 1), breaks = seq(-13.0, 1, by = 4),
                      labels = scales::number_format(accuracy = 0.1)) +
-  labs(title = "",y=" ",x="")+
-  theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.3,b=-1.2,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-  )->ppopulation10001 ## 可视范围限制
+  #scale_color_manual(values = c("Before Covid-19" = "#FFB5C5", "During Covid-19" = "#48D1CC")) + # 填充颜色  # 自定义颜色
+  #scale_fill_manual(values = c("Before Covid-19" = "#1F78B466", "During Covid-19" = "#33A02C66")) +
+  labs(title = "", y = "Marginal effect on negative \n sentiment values (95% CI)", x = "Skin Temperature") +
+  theme_classic() + theme0 +
+  theme(plot.margin = margin(t = -0.3, b = -1.2, l = 0.2, r = 0.2, unit = "cm"),
+        axis.text.y = element_text(color = "black", size = 15),
+        axis.text.x = element_text(color = "black", size = 15),
+        legend.position = c(0.3, 0.8),  # 图例位置
+        #legend.position = "top",  # 放在右侧外面
+        #legend.position = "none", #设置无legend
+        legend.title = element_blank(),  # 隐藏图例标题
+        legend.text = element_text(size = 15)
+  )->ppopulation10001  # 图例字体大小
 
 print(ppopulation10001)
 
 
-##这种现象可能是由于在高人口密度的环境中，树木覆盖的效果会受到拥挤、交通或噪音等其他环境因素的抵消。
-##这可能导致在较高人口密度下，树木覆盖对情绪的积极作用没有低密度地区明显，甚至消极情绪可能不明显下降。
+#############################################################
 
-
-
-#######################
-ggplot(data = query_sample2)+
-  geom_histogram(aes(x = population1000, y = ..density..), binwidth = 0.015, fill = "#002C5B66", color = "#002C5B66", alpha = 0.5) +
-  #geom_density(aes(x=population1000),fill="#002C5B66", color="white",show.legend = F, adjust = 1.5)+
-  scale_x_continuous(name =  expression(Population~density~(~"×"~1000)), limits = c(0, 10), breaks = seq(0, 10, by =2.5), 
-                     labels = scales::number_format(accuracy = 2.5)) +
-  scale_y_continuous(name = "  ", limits = c(0, 0.65),
-                     breaks = seq(0, 0.65, by = 0.2), 
-                     labels = scales::number_format(accuracy = 0.2)) +
-  #labs(x=expression("population1000"),y="")+
-  theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.35,b=0,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-  )->ppopulation10002 # 可视范围限制在 0 到 0.5 的范围内
+# 绘制直方图，边框颜色与填充颜色不同
+ggplot(data = query_sample2, aes(x = population1000, fill = period)) +
+  geom_histogram(aes(y = ..density.., color = period), 
+                 position = "identity", binwidth = 0.001, size = 0.8, alpha = 0.4, 
+                 color = NA) +  # 设置边框颜色为透明
+  scale_x_continuous(name =  expression(Population~density~(~"×"~1000)), 
+                     limits = c(0, 6), breaks = seq(0, 6, by =1.5), 
+                     labels = scales::number_format(accuracy = 0.1)) +
+  scale_y_continuous(name = " ", limits = c(0.0, 2), 
+                     breaks = seq(0.0, 2, by = 0.6), 
+                     labels = scales::number_format(accuracy = 0.1)) +
+  scale_fill_manual(values = c("Before Covid-19" = "#FFB5C5", "During Covid-19" = "#48D1CC")) + # 填充颜色 # 填充颜色
+  #scale_color_manual(values = c("Before Covid-19" = "#08459440",  # 添加透明度（80 表示 50% 透明）
+  #"During Covid-19" = "#00640040")) + # 添加透明度
+  theme_classic() + theme0 +
+  theme(plot.margin = margin(t = -0.35, b = 0, l = 0.2, r = 0.2, unit = "cm"),
+        axis.text.y = element_text(color = "black", size = 15),
+        axis.text.x = element_text(color = "black", size = 15),
+        legend.position = "none")->ppopulation10002
 
 print(ppopulation10002)
 
 
-ppopulation1000<-ggarrange(ppopulation10001,ppopulation10002,ncol = 1,align = "v",heights = c(2,1))
-#cairo_pdf("figure3.pdf",width = 11,height = 4,family = "Calibri")
+ppopulation1000<-ggarrange(ppopulation10001, ppopulation10002,ncol = 1,align = "v",heights = c(2,1))
 print(ppopulation1000)
 
 
-save_image_path= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_population1000', '.pdf', sep="")  # 字符串连接
+save_image_path= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_population1000', '.pdf', sep="")  # 字符串连接
 
 ggsave(save_image_path, plot = ppopulation1000, width = 150, height = 150, units = "mm",dpi=200)
 
 
-#########################################nightlight1000########################################
+################################################urban environment factors##################################################################
 
 
 
-input_file_name= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_nightlight1000', '.csv', sep="")  # 字符串连接
-
-
-marginaleffects_UTC1000_nightlight1000 = read.csv(input_file_name, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
-                                                  strip.white = FALSE)
 
 
 
-##################################################################################
-theme0<-theme(panel.grid.major = element_blank(),
-              panel.grid.minor = element_blank(),
-              panel.background = element_blank(),
-              axis.text.x = element_text(size = 15),
-              axis.text.y = element_text(size = 15),
-              axis.title = element_text(size = 15),
-              strip.text.x = element_text(size = 15),
-              strip.text.y = element_text(),
-              strip.background = element_rect( fill="white",colour = "black"))
-########NDVI+LBW
+#########################Marginal effect nightlight1000 ################################
+
+##疫情前数据集
+input_file_name_meanUTC_before= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_nightlight1000_meanUTC_before', '.csv', sep="")  # 字符串连接
+
+marginaleffects_UTC_nightlight1000_meanUTC_before = read.csv(input_file_name_meanUTC_before, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
+                                                             strip.white = FALSE)
 
 
-###################################### 绘制边际效应图和数据分布特征###########################################
-ggplot(data = marginaleffects_UTC1000_nightlight1000)+
-  geom_ribbon(aes(x=nightlight1000, y=mean_value, ymin=Low_value, ymax=UP_value),fill="#ED0021",alpha=0.3)+
-  geom_line(aes(x=nightlight1000, y=mean_value),colour="black",size=0.7)+
-  annotate("text",x=50, y=-1.5, size=5,color="grey20",hjust=0,label=expression(" "*italic(P)*" < 0.001" ))+
-  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +  # 添加一条红色虚线
-  scale_x_continuous(name = " ", limits = c(0, 200), breaks = seq(0, 200, by =50), 
+##疫情后数据集
+input_file_name_meanUTC_during= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_nightlight1000_meanUTC_during', '.csv', sep="")  # 字符串连接
+
+marginaleffects_UTC_nightlight1000_meanUTC_during = read.csv(input_file_name_meanUTC_during, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
+                                                             strip.white = FALSE)
+
+
+
+###########绘图#################
+
+theme0<-theme(  theme_minimal(base_family = "Arial"),
+                panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                panel.background = element_blank(),
+                legend.background = element_rect(fill = "transparent", color = NA),  # 背景透明，无边框
+                axis.text.x = element_text(size = 15),
+                axis.text.y = element_text(size = 15),
+                axis.title = element_text(size = 15),
+                strip.text.x = element_text(size = 15),
+                strip.text.y = element_text(),
+                strip.background = element_rect( fill="white",colour = "black"))
+
+##################################
+# 合并数据集，增加一个标记变量 "period" 表示疫情前后
+marginaleffects_UTC_nightlight1000_meanUTC_before$period <- "Before Covid-19"
+marginaleffects_UTC_nightlight1000_meanUTC_during$period <- "During Covid-19"
+
+combined_data1 <- rbind(marginaleffects_UTC_nightlight1000_meanUTC_before,
+                        marginaleffects_UTC_nightlight1000_meanUTC_during)
+
+### 绘图
+ggplot(data = combined_data1, aes(x = nightlight1000, y = mean_value, color = period, fill = period)) +
+  geom_ribbon(aes(ymin = Low_value, ymax = UP_value), alpha = 0.25, color = NA) +  # 去掉边界线
+  geom_line(size = 0.9) +  # 平均值线
+  
+  annotate("text", x = 50, y = -1.0, size = 6, color = "black", hjust = 0, label = "italic(P[before]) < 0.001", parse = TRUE) +
+  annotate("text", x = 50, y = -2.5, size = 6, color = "black", hjust = 0, label = "italic(P[during]) < 0.001", parse = TRUE) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +  # 添加红色虚线
+  scale_x_continuous(name = " ", limits = c(0, 120), breaks = seq(0, 120, by =30),  
                      labels = scales::number_format(accuracy = 0.1)) +
-  scale_y_continuous(name = "Marginal effect on negative \n sentiment values (95% CI)", limits = c(-6, 0.2),
-                     breaks = seq(-6, 0.1, by = 1.5), 
+  scale_y_continuous(name = "Marginal effect on negative \n sentiment values (95% CI)",
+                     limits = c(-14.0, 0), breaks = seq(-14.0, 0, by = 4.0),
                      labels = scales::number_format(accuracy = 0.1)) +
-  labs(title = "",y=" ",x="")+
-  theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.3,b=-1.2,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-  )->pnightlight10001 ## 可视范围限制
+  #scale_color_manual(values = c("Before Covid-19" = "#FFB5C5", "During Covid-19" = "#48D1CC")) + # 填充颜色  # 自定义颜色
+  #scale_fill_manual(values = c("Before Covid-19" = "#1F78B466", "During Covid-19" = "#33A02C66")) +
+  labs(title = "", y = "Marginal effect on negative \n sentiment values (95% CI)", x = "Skin Temperature") +
+  theme_classic() + theme0 +
+  theme(plot.margin = margin(t = -0.3, b = -1.2, l = 0.2, r = 0.2, unit = "cm"),
+        axis.text.y = element_text(color = "black", size = 15),
+        axis.text.x = element_text(color = "black", size = 15),
+        #legend.position = c(0.3, 0.9),  # 图例位置
+        legend.position = "none", #设置无legend
+        legend.title = element_blank(),  # 隐藏图例标题
+        legend.text = element_text(size = 15)
+  )->pnightlight10001  # 图例字体大小
 
 print(pnightlight10001)
 
+#############################################################
 
-##这种现象可能是由于在高人口密度的环境中，树木覆盖的效果会受到拥挤、交通或噪音等其他环境因素的抵消。
-##这可能导致在较高人口密度下，树木覆盖对情绪的积极作用没有低密度地区明显，甚至消极情绪可能不明显下降。
-
-
-
-#######################
-ggplot(data = query_sample2)+
-  geom_histogram(aes(x = nightlight1000, y = ..density..), binwidth = 0.1, fill = "#002C5B66", color = "#002C5B66", alpha = 0.5) +
-  #geom_density(aes(x=nightlight1000),fill="#002C5B66", color="white",show.legend = F, adjust = 1.5)+
-  scale_x_continuous(name = "Nightlight value", limits = c(0, 200), breaks = seq(0, 200, by = 50), 
+# 绘制直方图，边框颜色与填充颜色不同
+ggplot(data = query_sample2, aes(x = nightlight1000, fill = period)) +
+  geom_histogram(aes(y = ..density.., color = period), 
+                 position = "identity", binwidth = 0.01, size = 0.8, alpha = 0.4, 
+                 color = NA) +  # 设置边框颜色为透明
+  scale_x_continuous(name = "Nightlight value", limits = c(0, 120), breaks = seq(0, 120, by =30),    
                      labels = scales::number_format(accuracy = 0.1)) +
-  scale_y_continuous(name = "  ", limits = c(0, 0.16),
-                     breaks = seq(0, 0.16, by = 0.05), 
-                     labels = scales::number_format(accuracy = 0.05)) +
-  #labs(x=expression("nightlight1000"),y="")+
-  theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.35,b=0,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-  )->pnightlight10002 # 可视范围限制在 0 到 0.5 的范围内
+  scale_y_continuous(name = " ", limits = c(0.0, 0.15), 
+                     breaks = seq(0.0, 0.15, by = 0.04), 
+                     labels = scales::number_format(accuracy = 0.01)) +
+  scale_fill_manual(values = c("Before Covid-19" = "#FFB5C5", "During Covid-19" = "#48D1CC")) + # 填充颜色 # 填充颜色
+  #scale_color_manual(values = c("Before Covid-19" = "#08459440",  # 添加透明度（80 表示 50% 透明）
+  #"During Covid-19" = "#00640040")) + # 添加透明度
+  theme_classic() + theme0 +
+  theme(plot.margin = margin(t = -0.35, b = 0, l = 0.2, r = 0.2, unit = "cm"),
+        axis.text.y = element_text(color = "black", size = 15),
+        axis.text.x = element_text(color = "black", size = 15),
+        legend.position = "none")->pnightlight10002
 
 print(pnightlight10002)
 
 
-pnightlight1000<-ggarrange(pnightlight10001,pnightlight10002,ncol = 1,align = "v",heights = c(2,1))
-#cairo_pdf("figure3.pdf",width = 11,height = 4,family = "Calibri")
+pnightlight1000<-ggarrange(pnightlight10001, pnightlight10002,ncol = 1,align = "v",heights = c(2,1))
 print(pnightlight1000)
 
 
-save_image_path= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_nightlight1000', '.pdf', sep="")  # 字符串连接
+save_image_path= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_nightlight1000', '.pdf', sep="")  # 字符串连接
 
 ggsave(save_image_path, plot = pnightlight1000, width = 150, height = 150, units = "mm",dpi=200)
 
 
 
-#########################################settlement1000########################################
 
 
 
-input_file_name= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_settlement1000', '.csv', sep="")  # 字符串连接
 
-marginaleffects_UTC1000_settlement1000 = read.csv(input_file_name, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
-                                                  strip.white = FALSE)
+#########################Marginal effect settlement1000 ################################
 
+##疫情前数据集
+input_file_name_meanUTC_before= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_settlement1000_meanUTC_before', '.csv', sep="")  # 字符串连接
 
-##################################################################################
-theme0<-theme(panel.grid.major = element_blank(),
-              panel.grid.minor = element_blank(),
-              panel.background = element_blank(),
-              axis.text.x = element_text(size = 15),
-              axis.text.y = element_text(size = 15),
-              axis.title = element_text(size = 15),
-              strip.text.x = element_text(size = 15),
-              strip.text.y = element_text(),
-              strip.background = element_rect( fill="white",colour = "black"))
-########NDVI+LBW
+marginaleffects_UTC_settlement1000_meanUTC_before = read.csv(input_file_name_meanUTC_before, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
+                                                             strip.white = FALSE)
 
 
-###################################### 绘制边际效应图和数据分布特征###########################################
-ggplot(data = marginaleffects_UTC1000_settlement1000)+
-  geom_ribbon(aes(x=settlement1000, y=mean_value, ymin=Low_value, ymax=UP_value),fill="#ED0021",alpha=0.3)+
-  geom_line(aes(x=settlement1000, y=mean_value),colour="black",size=0.7)+
-  annotate("text",x=25, y=-1.2, size=5,color="grey20",hjust=0,label=expression(" "*italic(P)*" < 0.01" ))+
-  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +  # 添加一条红色虚线
+##疫情后数据集
+input_file_name_meanUTC_during= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_settlement1000_meanUTC_during', '.csv', sep="")  # 字符串连接
+
+marginaleffects_UTC_settlement1000_meanUTC_during = read.csv(input_file_name_meanUTC_during, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
+                                                             strip.white = FALSE)
+
+
+
+###########绘图#################
+
+theme0<-theme(  theme_minimal(base_family = "Arial"),
+                panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                panel.background = element_blank(),
+                legend.background = element_rect(fill = "transparent", color = NA),  # 背景透明，无边框
+                axis.text.x = element_text(size = 15),
+                axis.text.y = element_text(size = 15),
+                axis.title = element_text(size = 15),
+                strip.text.x = element_text(size = 15),
+                strip.text.y = element_text(),
+                strip.background = element_rect( fill="white",colour = "black"))
+
+##################################
+# 合并数据集，增加一个标记变量 "period" 表示疫情前后
+marginaleffects_UTC_settlement1000_meanUTC_before$period <- "Before Covid-19"
+marginaleffects_UTC_settlement1000_meanUTC_during$period <- "During Covid-19"
+
+combined_data1 <- rbind(marginaleffects_UTC_settlement1000_meanUTC_before,
+                        marginaleffects_UTC_settlement1000_meanUTC_during)
+
+### 绘图
+ggplot(data = combined_data1, aes(x = settlement1000, y = mean_value, color = period, fill = period)) +
+  geom_ribbon(aes(ymin = Low_value, ymax = UP_value), alpha = 0.25, color = NA) +  # 去掉边界线
+  geom_line(size = 0.9) +  # 平均值线
+  #annotate("text", x = 10, y = -2.0, size = 6, color = "black", hjust = 0, label = "italic(P) < 0.001", parse = TRUE) +
+  
+  annotate("text", x = 10, y = -3, size = 6, color = "black", hjust = 0,
+           label = "italic(P[before]) < 0.001", parse = TRUE) +
+  annotate("text", x = 10, y = -5.0, size = 6, color = "black", hjust = 0,
+           label = "italic(P[during]) < 0.001", parse = TRUE) +
+  
+  
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +  # 添加红色虚线
   scale_x_continuous(name = " ", limits = c(0, 100), breaks = seq(0, 100, by =25), 
-                     labels = scales::number_format(accuracy = 30.0)) +
-  scale_y_continuous(name = "Marginal effect on negative \n sentiment values (95% CI)", limits = c(-8, 0.0),
-                     breaks = seq(-8, 0.0, by = 2), 
                      labels = scales::number_format(accuracy = 0.1)) +
-  labs(title = "",y=" ",x="")+
-  theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.3,b=-1.2,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-  )->psettlement10001 ## 可视范围限制
+  scale_y_continuous(name = "Marginal effect on negative \n sentiment values (95% CI)",
+                     limits = c(-20.0, 0), breaks = seq(-20.0, 0, by = 5),
+                     labels = scales::number_format(accuracy = 0.1)) +
+  #scale_color_manual(values = c("Before Covid-19" = "#FFB5C5", "During Covid-19" = "#48D1CC")) + # 填充颜色  # 自定义颜色
+  #scale_fill_manual(values = c("Before Covid-19" = "#1F78B466", "During Covid-19" = "#33A02C66")) +
+  labs(title = "", y = "Marginal effect on negative \n sentiment values (95% CI)", x = " ") +
+  theme_classic() + theme0 +
+  theme(plot.margin = margin(t = -0.3, b = -1.2, l = 0.2, r = 0.2, unit = "cm"),
+        axis.text.y = element_text(color = "black", size = 15),
+        axis.text.x = element_text(color = "black", size = 15),
+        #legend.position = c(0.3, 0.9),  # 图例位置
+        legend.position = "none", #设置无legend
+        legend.title = element_blank(),  # 隐藏图例标题
+        legend.text = element_text(size = 15)
+  )->psettlement10001  # 图例字体大小
 
 print(psettlement10001)
 
 
-##这种现象可能是由于在高人口密度的环境中，树木覆盖的效果会受到拥挤、交通或噪音等其他环境因素的抵消。
-##这可能导致在较高人口密度下，树木覆盖对情绪的积极作用没有低密度地区明显，甚至消极情绪可能不明显下降。
 
+#############################################################
 
-
-
-#######################
-ggplot(data = query_sample2)+
-  geom_histogram(aes(x = settlement1000, y = ..density..), binwidth = 0.1, fill = "#002C5B66", color = "#002C5B66", alpha = 0.5) +
-  #geom_density(aes(x=settlement1000),fill="#002C5B66", color="white",show.legend = F, adjust = 1.5)+
-  scale_x_continuous(name = expression(Total~built-up~surface~(m^2 ~"×"~1000)), limits = c(0, 100), breaks = seq(0, 100, by = 25), 
+# 绘制直方图，边框颜色与填充颜色不同
+ggplot(data = query_sample2, aes(x = settlement1000, fill = period)) +
+  geom_histogram(aes(y = ..density.., color = period), 
+                 position = "identity", binwidth = 0.005, size = 0.8, alpha = 0.4, 
+                 color = NA) +  # 设置边框颜色为透明
+  scale_x_continuous(name = expression(Total~built-up~surface~(m^2 ~"×"~1000)), limits = c(0, 100), breaks = seq(0, 100, by = 25),  
                      labels = scales::number_format(accuracy = 0.1)) +
-  scale_y_continuous(name = "  ", limits = c(0, 0.26),
-                     breaks = seq(0, 0.26, by = 0.08), 
+  scale_y_continuous(name = " ", limits = c(0.0, 0.25), 
+                     breaks = seq(0.0, 0.25, by = 0.08), 
                      labels = scales::number_format(accuracy = 0.01)) +
-  #labs(x=expression("settlement1000"),y="")+
-  theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.35,b=0,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-  )->psettlement10002 # 可视范围限制在 0 到 0.5 的范围内
+  scale_fill_manual(values = c("Before Covid-19" = "#FFB5C5", "During Covid-19" = "#48D1CC")) + # 填充颜色 # 填充颜色
+  #scale_color_manual(values = c("Before Covid-19" = "#08459440",  # 添加透明度（80 表示 50% 透明）
+  #"During Covid-19" = "#00640040")) + # 添加透明度
+  theme_classic() + theme0 +
+  theme(plot.margin = margin(t = -0.35, b = 0, l = 0.2, r = 0.2, unit = "cm"),
+        axis.text.y = element_text(color = "black", size = 15),
+        axis.text.x = element_text(color = "black", size = 15),
+        legend.position = "none")->psettlement10002
 
 print(psettlement10002)
 
 
-psettlement1000<-ggarrange(psettlement10001,psettlement10002,ncol = 1,align = "v",heights = c(2,1))
-#cairo_pdf("figure3.pdf",width = 11,height = 4,family = "Calibri")
+psettlement1000<-ggarrange(psettlement10001, psettlement10002,ncol = 1,align = "v",heights = c(2,1))
 print(psettlement1000)
 
 
-save_image_path= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_settlement1000', '.pdf', sep="")  # 字符串连接
+save_image_path= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_settlement1000', '.pdf', sep="")  # 字符串连接
 
 ggsave(save_image_path, plot = psettlement1000, width = 150, height = 150, units = "mm",dpi=200)
 
 
 
 
+#########################Marginal effect GDP ################################
 
+##疫情前数据集
+input_file_name_meanUTC_before= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_GDP_meanUTC_before', '.csv', sep="")  # 字符串连接
 
-#########################################impervious1000########################################
-
-
-input_file_name= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_impervious1000', '.csv', sep="")  # 字符串连接
-
-
-marginaleffects_UTC1000_impervious1000 = read.csv(input_file_name, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
+marginaleffects_UTC_GDP_meanUTC_before = read.csv(input_file_name_meanUTC_before, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
                                                   strip.white = FALSE)
 
 
-##################################################################################
-theme0<-theme(panel.grid.major = element_blank(),
-              panel.grid.minor = element_blank(),
-              panel.background = element_blank(),
-              axis.text.x = element_text(size = 15),
-              axis.text.y = element_text(size = 15),
-              axis.title = element_text(size = 15),
-              strip.text.x = element_text(size = 15),
-              strip.text.y = element_text(),
-              strip.background = element_rect( fill="white",colour = "black"))
-########NDVI+LBW
+##疫情后数据集
+input_file_name_meanUTC_during= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_GDP_meanUTC_during', '.csv', sep="")  # 字符串连接
+
+marginaleffects_UTC_GDP_meanUTC_during = read.csv(input_file_name_meanUTC_during, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
+                                                  strip.white = FALSE)
 
 
-###################################### 绘制边际效应图和数据分布特征###########################################
-ggplot(data = marginaleffects_UTC1000_impervious1000)+
-  geom_ribbon(aes(x=impervious1000, y=mean_value, ymin=Low_value, ymax=UP_value),fill="#ED0021",alpha=0.3)+
-  geom_line(aes(x=impervious1000, y=mean_value),colour="black",size=0.7)+
-  annotate("text",x=0.4, y=-1.5, size=5,color="grey20",hjust=0,label=expression(" "*italic(P)*" < 0.001" ))+
-  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +  # 添加一条红色虚线
-  scale_x_continuous(name = " ", limits = c(0.2, 1), breaks = seq(0.2, 1, by =0.20), 
+
+###########绘图#################
+
+theme0<-theme(  theme_minimal(base_family = "Arial"),
+                panel.grid.major = element_blank(),
+                panel.grid.minor = element_blank(),
+                panel.background = element_blank(),
+                legend.background = element_rect(fill = "transparent", color = NA),  # 背景透明，无边框
+                axis.text.x = element_text(size = 15),
+                axis.text.y = element_text(size = 15),
+                axis.title = element_text(size = 15),
+                strip.text.x = element_text(size = 15),
+                strip.text.y = element_text(),
+                strip.background = element_rect( fill="white",colour = "black"))
+
+##################################
+# 合并数据集，增加一个标记变量 "period" 表示疫情前后
+marginaleffects_UTC_GDP_meanUTC_before$period <- "Before Covid-19"
+marginaleffects_UTC_GDP_meanUTC_during$period <- "During Covid-19"
+
+combined_data1 <- rbind(marginaleffects_UTC_GDP_meanUTC_before,
+                        marginaleffects_UTC_GDP_meanUTC_during)
+
+### 绘图
+ggplot(data = combined_data1, aes(x = GDP, y = mean_value, color = period, fill = period)) +
+  geom_ribbon(aes(ymin = Low_value, ymax = UP_value), alpha = 0.25, color = NA) +  # 去掉边界线
+  geom_line(size = 0.9) +  # 平均值线
+  #annotate("text", x = 5, y = -1.5, size = 6, color = "black", hjust = 0, label = "italic(P) < 0.001", parse = TRUE) +
+  
+  annotate("text", x = 5, y = -1.5, size = 6, color = "black", hjust = 0,
+           label = "italic(P[before]) < 0.001", parse = TRUE) +
+  annotate("text", x = 5, y = -2.5, size = 6, color = "black", hjust = 0,
+           label = "italic(P[during]) < 0.001", parse = TRUE) + 
+  
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +  # 添加红色虚线
+  scale_x_continuous(name = " ", limits = c(3, 23), breaks = seq(3, 23, by =5), 
                      labels = scales::number_format(accuracy = 0.1)) +
-  scale_y_continuous(name = "Marginal effect on negative \n sentiment values (95% CI)", limits = c(-8, 0.0),
-                     breaks = seq(-8, 0.0, by = 2), 
+  scale_y_continuous(name = "Marginal effect on negative \n sentiment values (95% CI)",
+                     limits = c(-11, -0), breaks = seq(-11, 0, by = 3.5),
                      labels = scales::number_format(accuracy = 0.1)) +
-  labs(title = "",y=" ",x="")+
-  theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.3,b=-1.2,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-  )->pimpervious10001 ## 可视范围限制
-
-print(pimpervious10001)
-
-
-##这种现象可能是由于在高人口密度的环境中，树木覆盖的效果会受到拥挤、交通或噪音等其他环境因素的抵消。
-##这可能导致在较高人口密度下，树木覆盖对情绪的积极作用没有低密度地区明显，甚至消极情绪可能不明显下降。
-
-
-
-#######################
-ggplot(data = query_sample2)+
-  geom_histogram(aes(x = impervious1000, y = ..density..), binwidth = 0.002, fill = "#002C5B66", color = "#002C5B66", alpha = 0.5) +
-  #geom_density(aes(x=impervious1000),fill="#002C5B66", color="white",show.legend = F, adjust = 1.5)+
-  scale_x_continuous(name = "Impervious", limits = c(0.2, 1), breaks = seq(0.2, 1, by = 0.20), 
-                     labels = scales::number_format(accuracy = 0.1)) +
-  scale_y_continuous(name = "  ", limits = c(0, 8),
-                     breaks = seq(0, 8, by = 2.5), 
-                     labels = scales::number_format(accuracy = 0.1)) +
-  #labs(x=expression("impervious1000"),y="")+
-  theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.35,b=0,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-  )->pimpervious10002 # 可视范围限制在 0 到 0.5 的范围内
-
-print(pimpervious10002)
-
-
-pimpervious1000<-ggarrange(pimpervious10001,pimpervious10002,ncol = 1,align = "v",heights = c(2,1))
-#cairo_pdf("figure3.pdf",width = 11,height = 4,family = "Calibri")
-print(pimpervious1000)
-
-
-save_image_path= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_impervious1000', '.pdf', sep="")  # 字符串连接
-
-ggsave(save_image_path, plot = pimpervious1000, width = 150, height = 150, units = "mm",dpi=200)
-
-
-
-#########################################GDP########################################
-
-
-# 构建数据框并直接命名
-
-
-input_file_name= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_GDP', '.csv', sep="")  # 字符串连接
-
-
-marginaleffects_UTC1000_GDP = read.csv(input_file_name, header=TRUE, sep=',',blank.lines.skip=FALSE, encoding="UTF-8", 
-                                       strip.white = FALSE)
-
-
-##################################################################################
-theme0<-theme(panel.grid.major = element_blank(),
-              panel.grid.minor = element_blank(),
-              panel.background = element_blank(),
-              axis.text.x = element_text(size = 15),
-              axis.text.y = element_text(size = 15),
-              axis.title = element_text(size = 15),
-              strip.text.x = element_text(size = 15),
-              strip.text.y = element_text(),
-              strip.background = element_rect( fill="white",colour = "black"))
-########NDVI+LBW
-
-
-###################################### 绘制边际效应图和数据分布特征###########################################
-ggplot(data = marginaleffects_UTC1000_GDP)+
-  geom_ribbon(aes(x=GDP, y=mean_value, ymin=Low_value, ymax=UP_value),fill="#ED0021",alpha=0.3)+
-  geom_line(aes(x=GDP, y=mean_value),colour="black",size=0.7)+
-  annotate("text",x=7, y=-1.6, size=5,color="grey20",hjust=0,label=expression(" "*italic(P)*" < 0.001" ))+
-  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +  # 添加一条红色虚线
-  scale_x_continuous(name = " ", limits = c(0, 20), breaks = seq(0, 20, by =5), 
-                     labels = scales::number_format(accuracy = 0.1)) +
-  scale_y_continuous(name = "Marginal effect on negative \n sentiment values (95% CI)", limits = c(-7, 0),
-                     breaks = seq(-7, 0, by = 1.8), 
-                     labels = scales::number_format(accuracy = 0.1)) +
-  labs(title = "",y=" ",x="")+
-  theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.3,b=-1.2,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-  )->pGDP1 ## 可视范围限制
+  #scale_color_manual(values = c("Before Covid-19" = "#FFB5C5", "During Covid-19" = "#48D1CC")) + # 填充颜色  # 自定义颜色
+  #scale_fill_manual(values = c("Before Covid-19" = "#1F78B466", "During Covid-19" = "#33A02C66")) +
+  labs(title = "", y = "Marginal effect on negative \n sentiment values (95% CI)", x = "Skin Temperature") +
+  theme_classic() + theme0 +
+  theme(plot.margin = margin(t = -0.3, b = -1.2, l = 0.2, r = 0.2, unit = "cm"),
+        axis.text.y = element_text(color = "black", size = 15),
+        axis.text.x = element_text(color = "black", size = 15),
+        #legend.position = c(0.3, 0.9),  # 图例位置
+        legend.position = "none", #设置无legend
+        legend.title = element_blank(),  # 隐藏图例标题
+        legend.text = element_text(size = 15)
+  )->pGDP1  # 图例字体大小
 
 print(pGDP1)
 
 
-##这种现象可能是由于在高人口密度的环境中，树木覆盖的效果会受到拥挤、交通或噪音等其他环境因素的抵消。
-##这可能导致在较高人口密度下，树木覆盖对情绪的积极作用没有低密度地区明显，甚至消极情绪可能不明显下降。
+#############################################################
 
-
-
-#######################
-ggplot(data = query_sample2)+
-  geom_histogram(aes(x = GDP, y = ..density..), binwidth = 0.01, fill = "#002C5B66", color = "#002C5B66", alpha = 0.5) +
-  #geom_density(aes(x=GDP),fill="#002C5B66", color="white",show.legend = F, adjust = 1.5)+
-  scale_x_continuous(name = expression(GDP~(~"$"~"×"~1000)), limits = c(0, 20), breaks = seq(0, 20, by = 5), 
+# 绘制直方图，边框颜色与填充颜色不同
+ggplot(data = query_sample2, aes(x = GDP, fill = period)) +
+  geom_histogram(aes(y = ..density.., color = period), 
+                 position = "identity", binwidth = 0.001, size = 0.8, alpha = 0.4, 
+                 color = NA) +  # 设置边框颜色为透明
+  scale_x_continuous(name = expression(GDP~(~"$"~"×"~1000)), limits = c(3, 23), breaks = seq(3, 23, by = 5), 
                      labels = scales::number_format(accuracy = 0.1)) +
   scale_y_continuous(name = "  ", limits = c(0, 1.7),
                      breaks = seq(0, 1.7, by = 0.5), 
                      labels = scales::number_format(accuracy = 0.1)) +
-  #labs(x=expression("GDP"),y="")+
-  theme_classic()+theme0+
-  theme(plot.margin = margin(t=-0.35,b=0,l=0.2,r=0.2, unit = "cm"),
-        axis.text.y = element_text(color = "black", size = 15),  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-        axis.text.x = element_text(color = "black", size = 15)  # 设置 Y 轴字体颜色为蓝色，字体大小为 12
-  )->pGDP2 # 可视范围限制在 0 到 0.5 的范围内
+  scale_fill_manual(values = c("Before Covid-19" = "#FFB5C5", "During Covid-19" = "#48D1CC")) + # 填充颜色 # 填充颜色
+  #scale_color_manual(values = c("Before Covid-19" = "#08459440",  # 添加透明度（80 表示 50% 透明）
+  #"During Covid-19" = "#00640040")) + # 添加透明度
+  theme_classic() + theme0 +
+  theme(plot.margin = margin(t = -0.35, b = 0, l = 0.2, r = 0.2, unit = "cm"),
+        axis.text.y = element_text(color = "black", size = 15),
+        axis.text.x = element_text(color = "black", size = 15),
+        legend.position = "none")->pGDP2
 
 print(pGDP2)
 
 
-pGDP<-ggarrange(pGDP1,pGDP2,ncol = 1,align = "v",heights = c(2,1))
-#cairo_pdf("figure3.pdf",width = 11,height = 4,family = "Calibri")
+pGDP<-ggarrange(pGDP1, pGDP2,ncol = 1,align = "v",heights = c(2,1))
 print(pGDP)
 
 
-save_image_path= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC_GDP', '.pdf', sep="")  # 字符串连接
+save_image_path= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC_GDP', '.pdf', sep="")  # 字符串连接
 
 ggsave(save_image_path, plot = pGDP, width = 150, height = 150, units = "mm",dpi=200)
-
-#############################################################################################################
-
 
 
 
@@ -1333,13 +1603,14 @@ jj <-  cowplot::plot_grid(pnightlight1000,nrow = 1, ncol = 1, labels = c("b"),
                           label_size = 18, scale=1,label_x = 0.02, label_y = 1.0, rel_widths = c(1, 1))
 
 
-kk <-  cowplot::plot_grid(pimpervious1000,nrow = 1, ncol = 1, labels = c("c"),
+kk <-  cowplot::plot_grid(psettlement1000,nrow = 1, ncol = 1, labels = c("c"),
                           label_size = 18, scale=1,label_x = 0.02, label_y = 1.0, rel_widths = c(1, 1))
 
 
 
 mm <-  cowplot::plot_grid(pGDP,nrow = 1, ncol = 1, labels = c("d"),
                           label_size = 18, scale=1,label_x = 0.02, label_y = 1.0, rel_widths = c(1, 1))
+
 
 
 p6 <- cowplot::plot_grid(ii, NULL, jj, nrow = 1, ncol = 3, align = "h", rel_heights = c(1.0, 1.0, 1.0), rel_widths = c(1, 0.1, 1.0)) # rel_heights 参数图形高度设置
@@ -1352,13 +1623,9 @@ print(p7)
 p8 <- cowplot::plot_grid(p6, p7, nrow = 2, ncol = 1, align = "h", rel_heights = c(1.0, 1.0), rel_widths = c(1, 1.0)) # rel_heights 参数图形高度设置
 print(p8)
 
+save_image_path= paste(str0, 'Negative_Sentiment_Rcodes_covid19', '/secondary_data_utc1000/',  'UTC1000_envrionments_Marginal_effect', '.pdf', sep="")  # 字符串连接
 
-save_image_path= paste(str0, 'Negative_Sentiment_Rcodes', '/secondary_data_utc1000/',  'UTC1000_envrionments_Marginal_effect', '.pdf', sep="")  # 字符串连接
-
-ggsave(save_image_path, plot = p8, width = 320, height = 260, units = "mm",dpi=200)
-
+ggsave(save_image_path, plot = p8, width = 260, height = 250, units = "mm",dpi=200)
 
 
-
-##############################################################################################################
 
