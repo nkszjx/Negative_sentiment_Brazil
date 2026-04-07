@@ -2266,13 +2266,13 @@ write(latex_code1, file = "E:/Sentiment_Brazil/R_codes/Negative_Sentiment_Rcodes
 
 text_code2 <- stargazer(model_before, model_during,  
                         type = "text", title = " Hierarchical regression")
-write(text_code1, file = "E:/Sentiment_Brazil/R_codes/Negative_Sentiment_Rcodes_covid19/secondary_data_utc500/Hierarchical_Results_tab_20250923.txt")
+write(text_code2, file = "E:/Sentiment_Brazil/R_codes/Negative_Sentiment_Rcodes_covid19/secondary_data_utc500/Hierarchical_Results_tab_20250923.txt")
 
 
 
 latex_code2 <- stargazer(model_before, model_during,  
                          type = "latex", title = "Hierarchical regression")
-write(latex_code1, file = "E:/Sentiment_Brazil/R_codes/Negative_Sentiment_Rcodes_covid19/secondary_data_utc500/Hierarchical_Results_tab_latex_20250923.tex")
+write(latex_code2, file = "E:/Sentiment_Brazil/R_codes/Negative_Sentiment_Rcodes_covid19/secondary_data_utc500/Hierarchical_Results_tab_latex_20250923.tex")
 
 
 
@@ -4266,13 +4266,13 @@ write(latex_code1, file = "E:/Sentiment_Brazil/R_codes/Negative_Sentiment_Rcodes
 
 text_code2 <- stargazer(model1000_before, model1000_during,  
                         type = "text", title = " Hierarchical regression")
-write(text_code1, file = "E:/Sentiment_Brazil/R_codes/Negative_Sentiment_Rcodes_covid19/secondary_data_utc1000/Hierarchical_Results_tab_20250923.txt")
+write(text_code2, file = "E:/Sentiment_Brazil/R_codes/Negative_Sentiment_Rcodes_covid19/secondary_data_utc1000/Hierarchical_Results_tab_20250923.txt")
 
 
 
 latex_code2 <- stargazer(model1000_before, model1000_during,  
                          type = "latex", title = "Hierarchical regression")
-write(latex_code1, file = "E:/Sentiment_Brazil/R_codes/Negative_Sentiment_Rcodes_covid19/secondary_data_utc1000/Hierarchical_Results_tab_latex_20250923.tex")
+write(latex_code2, file = "E:/Sentiment_Brazil/R_codes/Negative_Sentiment_Rcodes_covid19/secondary_data_utc1000/Hierarchical_Results_tab_latex_20250923.tex")
 
 
 
@@ -6273,13 +6273,13 @@ write(latex_code1, file = "E:/Sentiment_Brazil/R_codes/Negative_Sentiment_Rcodes
 
 text_code2 <- stargazer(model1500_before, model1500_during,  
                         type = "text", title = " Hierarchical regression")
-write(text_code1, file = "E:/Sentiment_Brazil/R_codes/Negative_Sentiment_Rcodes_covid19/secondary_data_utc1500/Hierarchical_Results_tab_20250923.txt")
+write(text_code2, file = "E:/Sentiment_Brazil/R_codes/Negative_Sentiment_Rcodes_covid19/secondary_data_utc1500/Hierarchical_Results_tab_20250923.txt")
 
 
 
 latex_code2 <- stargazer(model1500_before, model1500_during,  
                          type = "latex", title = "Hierarchical regression")
-write(latex_code1, file = "E:/Sentiment_Brazil/R_codes/Negative_Sentiment_Rcodes_covid19/secondary_data_utc1500/Hierarchical_Results_tab_latex_20250923.tex")
+write(latex_code2, file = "E:/Sentiment_Brazil/R_codes/Negative_Sentiment_Rcodes_covid19/secondary_data_utc1500/Hierarchical_Results_tab_latex_20250923.tex")
 
 
 
