@@ -114,8 +114,8 @@ Our ideas may partly come from the papers:
 
 ## Citation
 
-```
+
 Jianhua Guo*, Huadong Guo*, Jianghao Wang, Danfeng Hong, Anna Kruspe, XiaoXiang Zhu. Urban trees reduce negative sentiment on social media with amplified benefits during COVID-19[J]. Nature Cities, 2026, 1-22. (Submitted)
-```
+
 
 
