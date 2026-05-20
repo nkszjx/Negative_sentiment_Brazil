@@ -68,7 +68,7 @@ The social media posts were collected from the [Tweet API](https://developer.x.c
 3. [Global 30-m impervious surface dataset](https://zenodo.org/records/5220816).
 4. [Population density data of Brazil](https://developers.google.com/earth-engine/datasets/catalog/CIESIN_GPWv411_GPW_Population_Density/). 
 5. [Global night time lights dataset](https://zenodo.org/records/7750175).
-6. [Sentimental data and control variable data](https://figshare.com/articles/dataset/Brazil_Sentiment_dataset_2018-2022/30405160?file=58905274).
+6. [Sentimental data and control variable data](https://figshare.com/articles/dataset/Brazil_Sentiment_dataset_2018-2022/30405160?file=58905274) used in this study.
 
 
 
