@@ -77,13 +77,10 @@ library(stargazer)
 library(tidyr)
 
 ```
-## The Urban Tree Canopy Cover in Brazil
-The created high resolution UTC products of 472 Brazilian cities are freely accessible at [Here](https://github.com/nkszjx/UTB_master).
-
-
 
 ## Data availability
-The social media posts were collected from the [Tweet API](https://developer.x.com/en/docs/twitter-api), [Instagram API](https://www.instagram.com/), and [Foursquare API](https://location.foursquare.com/developer/).
+The social media posts were collected from the [Tweet API](https://developer.x.com/en/docs/twitter-api), [Instagram API](https://www.instagram.com/), and [Foursquare API](https://location.foursquare.com/developer/). The created high resolution UTC products of 472 Brazilian cities are freely accessible at [Here](https://github.com/nkszjx/UTB_master).
+
 1. Daily weather datasets [(ERA5)](https://cds.climate.copernicus.eu/datasets).
 2. 2018 and 2022 [GDP per capita dataset of Brazilian municipalities](https://www.ibge.gov.br/en/statistics/economic/national-accounts.html).
 3. [Global 30-m impervious surface dataset](https://zenodo.org/records/5220816).
