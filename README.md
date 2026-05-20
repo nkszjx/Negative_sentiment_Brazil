@@ -6,6 +6,25 @@
 
 ![](/fig2.png)
 
+## System Requirements
+1. Operating System
+The code has been tested on Windows 10/11 (64-bit) and macOS Ventura 13.0+.
+2. Software Dependencies & Version Numbers
+Python (version 3.8 or higher)
+Pandas (version 1.4.0 or higher)
+NumPy (version 1.21.0 or higher)
+Matplotlib (version 3.5.0 or higher)
+Scikit-learn (version 1.0.0 or higher)
+All dependencies can be installed via the following command:
+pip install -r requirements.txt
+3. Tested Environments
+The software has been fully tested on:
+Python 3.8, 3.9, 3.10
+Windows 10
+macOS Ventura 13.2
+4. Non-standard Hardware
+No non-standard hardware is required. The code can run on a standard personal computer or laptop with 32 GB RAM or above.
+
 
 ## Package pre-requisites
 The R codes running environment are required. 
