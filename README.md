@@ -60,6 +60,18 @@ library(tidyr)
 The created high resolution UTC products of 472 Brazilian cities are freely accessible at [Here](https://github.com/nkszjx/UTB_master).
 
 
+
+## Data availability
+The social media posts were collected from the [Tweet API](https://developer.x.com/en/docs/twitter-api), [Instagram API](https://www.instagram.com/), and [Foursquare API](https://location.foursquare.com/developer/).
+1. Daily weather datasets [(ERA5)](https://cds.climate.copernicus.eu/datasets).
+2. 2018 and 2022 [GDP per capita dataset of Brazilian municipalities](https://www.ibge.gov.br/en/statistics/economic/national-accounts.html).
+3. [Global 30-m impervious surface dataset](https://zenodo.org/records/5220816).
+4. [Population density data of Brazil](https://developers.google.com/earth-engine/datasets/catalog/CIESIN_GPWv411_GPW_Population_Density/). 
+5. [Global night time lights dataset](https://zenodo.org/records/7750175).
+6. [Sentimental data and control variable data](https://figshare.com/articles/dataset/Brazil_Sentiment_dataset_2018-2022/30405160?file=58905274).
+
+
+
 ## Acknowledgement
 
 Our ideas may partly come from the papers:
